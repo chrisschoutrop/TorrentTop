@@ -32,6 +32,7 @@ Way forward (what locally seems OK):
 class Parser {
     /*
     TODO:
+    - Input should be a vector of bytes, not strings?
     - Parse basic inputs
     - Parse complex inputs
     - Handle malformed inputs
@@ -43,7 +44,7 @@ public:
         pos=0;
 
     }
-    int parse_integer(const std::string& input) {
+    int parse_integer(const std::vector<std::byte>& input) {
         /*
         Example I/O (substring starting from "pos"):
             "i0e"       ->  0
@@ -59,14 +60,17 @@ public:
         int64_t start=0;
         int64_t end=0;
         for(int64_t i=pos; i<pos+input.size(); ++i) {
-            char current_character=input[i];
-            if(current_character=='i') {
+            /*
+            This SHOULD only be i,e,0,1,2,3,4,5,6,7,8,9,-
+            */
+            std::byte current_character=input[i];
+            if(current_character==std::byte('i')) {
                 start=i;
                 continue;
-            } else if(current_character=='e') {
+            } else if(current_character==std::byte('e')) {
                 end=i;
                 break;
-            } else if(isdigit(current_character) || current_character=='-') {
+            } else if(isdigit(std::to_integer<uint8_t>(current_character)) || current_character==std::byte('-')) {
                 continue;
             } else {
                 throw std::invalid_argument("#c2c85a");
@@ -77,18 +81,58 @@ public:
             throw std::invalid_argument("#286991");
         }
         pos=end+1;
+        std::string string2(input.begin()+start+1,input.begin()+end);
         // TODO: Check if this makes a copy, std::string_view doesn't go in stoll
-        return std::stoll(input.substr(start+1,end-1));
+        return std::stoll(string2);
     }
+
 };
 
+std::vector<std::vector<std::byte>> convert_strings_to_bytes(const std::vector<std::string>& inputs_strings) {
+    std::vector<std::vector<std::byte>> inputs(inputs_strings.size());
+    for(int64_t i_str=0; i_str<inputs_strings.size(); ++i_str) {
+        const std::string str=inputs_strings[i_str];
+        //inputs[i_str].reserve(str.size());
+        for(int64_t i_char=0; i_char<str.size(); ++i_char) {
+            inputs[i_str].push_back(static_cast<std::byte>(str[i_char]));
+        }
+    }
+    return inputs;
+}
 
 void test_integers() {
-    std::vector<std::string> inputs{
+    std::vector<std::string> inputs_strings{
         "i0e",
         "i42e",
         "i-42e",
-        "i-73eHORSE",
+        "i-73eHORSE"
+    };
+    std::vector<std::vector<std::byte>> inputs=convert_strings_to_bytes(inputs_strings);
+
+    std::vector<int64_t> expected{
+        0,
+        42,
+        -42,
+        -73,
+    };
+    std::vector<int64_t> results;
+    for(const auto& input:inputs) {
+        Parser P;
+        results.push_back(P.parse_integer(input));
+    }
+    assert(results.size()==expected.size());
+    for(int64_t i=0; i<expected.size(); ++i) {
+        assert(results[i]==expected[i]);
+    }
+}
+void test_byte_strings() {
+    /*
+    TODO:
+        - Figure out how to even write tests
+        - Do we need to support 0x0?
+    */
+    std::vector<std::vector<std::byte>> inputs{
+
     };
     std::vector<int64_t> expected{
         0,
