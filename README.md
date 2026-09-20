@@ -1,11 +1,20 @@
 # 🏗️ Under construction 🏗️
 Intention:
+
 - Torrent client with a terminal interface, think of htop but for Torrents
 - Practically usable
 - Lightweight
-- Cool personal project
+- Cool personal project, learn some new stuff; parsing, networking, complex file I/O
 - Yes I like emojis
 - No I'm not an AI
+
+Ideas:
+
+- Header only, just use ccache and avoid duplication over header/implementation
+- Everything formatted with astyle
+- Tests for as much as possible
+- Develop something complex that's not im Fortran with 40 years of legacy
+- Develop small experiments first and then combine with main code, this way we figure out the implementation without dragging along large codebase. 
 
 # 📝 The plan 📝
 ## Phase 1 (Data and parsing)

@@ -10,7 +10,7 @@ then move this into a proper boost test+construction later when we
 have figured out how to structure everything.
 */
 
-void test_integers(){
+void test_integers() {
     std::vector<std::string> inputs{
         "i0e",
         "i42e",
@@ -20,7 +20,7 @@ void test_integers(){
         0,
         42,
         -42
-    };    
+    };
 }
 
 int main() {
