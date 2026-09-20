@@ -44,12 +44,13 @@ public:
         pos=0;
 
     }
-    int parse_integer(const std::vector<std::byte>& input) {
+    int parse_single_integer(const std::vector<std::byte>& input) {
         /*
         Example I/O (substring starting from "pos"):
             "i0e"       ->  0
             "i42e"      ->  42
             "i-42e"     ->  -42
+        For now parses a SINGLE integer, e.g. NOT i0ei42e
         */
         /*
         Idea:
@@ -59,6 +60,7 @@ public:
         */
         int64_t start=0;
         int64_t end=0;
+        int64_t count_digit_or_minus=0;
         for(int64_t i=pos; i<pos+input.size(); ++i) {
             /*
             This SHOULD only be i,e,0,1,2,3,4,5,6,7,8,9,-
@@ -71,19 +73,19 @@ public:
                 end=i;
                 break;
             } else if(isdigit(std::to_integer<uint8_t>(current_character)) || current_character==std::byte('-')) {
+                count_digit_or_minus++;
                 continue;
             } else {
                 throw std::invalid_argument("#c2c85a");
             }
         }
-        if(start+1>end-1) {
-            // ?
+        if(count_digit_or_minus==0) {
             throw std::invalid_argument("#286991");
         }
         pos=end+1;
-        std::string string2(input.begin()+start+1,input.begin()+end);
-        // TODO: Check if this makes a copy, std::string_view doesn't go in stoll
-        return std::stoll(string2);
+        int64_t res;
+        std::from_chars(reinterpret_cast<const char*>(input.data()+start+1),reinterpret_cast<const char*>(input.data()+end),res);
+        return res;
     }
 
 };
@@ -92,7 +94,7 @@ std::vector<std::vector<std::byte>> convert_strings_to_bytes(const std::vector<s
     std::vector<std::vector<std::byte>> inputs(inputs_strings.size());
     for(int64_t i_str=0; i_str<inputs_strings.size(); ++i_str) {
         const std::string str=inputs_strings[i_str];
-        //inputs[i_str].reserve(str.size());
+        inputs[i_str].reserve(str.size());
         for(int64_t i_char=0; i_char<str.size(); ++i_char) {
             inputs[i_str].push_back(static_cast<std::byte>(str[i_char]));
         }
@@ -118,7 +120,7 @@ void test_integers() {
     std::vector<int64_t> results;
     for(const auto& input:inputs) {
         Parser P;
-        results.push_back(P.parse_integer(input));
+        results.push_back(P.parse_single_integer(input));
     }
     assert(results.size()==expected.size());
     for(int64_t i=0; i<expected.size(); ++i) {
