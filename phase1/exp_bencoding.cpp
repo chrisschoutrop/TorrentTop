@@ -30,6 +30,13 @@ Way forward (what locally seems OK):
     like "i" we call parse_integer().
 */
 class Parser {
+    /*
+    TODO:
+    - Parse basic inputs
+    - Parse complex inputs
+    - Handle malformed inputs
+    - Clean this up once it works correctly
+    */
 public:
     int64_t pos;
     Parser() {
@@ -38,13 +45,39 @@ public:
     }
     int parse_integer(const std::string& input) {
         /*
-        Example I/O:
+        Example I/O (substring starting from "pos"):
             "i0e"       ->  0
             "i42e"      ->  42
             "i-42e"     ->  -42
         */
-
-        return 234234;
+        /*
+        Idea:
+        - We find the 'i'
+        - Skip everything until we hit 'e'
+        - Get the string view of whatever is in between, pass to std::to_int() or whatever
+        */
+        int64_t start=0;
+        int64_t end=0;
+        for(int64_t i=pos; i<pos+input.size(); ++i) {
+            char current_character=input[i];
+            if(current_character=='i') {
+                start=i;
+                continue;
+            } else if(current_character=='e') {
+                end=i;
+                break;
+            } else if(isdigit(current_character) || current_character=='-') {
+                continue;
+            } else {
+                throw std::invalid_argument("#c2c85a");
+            }
+        }
+        if(start==end) {
+            // ?
+            return 0;
+        }
+        pos=end+1;
+        return std::stoll(std::string_view(input).substr(start,end));
     }
 };
 
