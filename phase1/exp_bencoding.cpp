@@ -91,6 +91,13 @@ public:
         return res;
     }
     std::vector<std::byte> parse_byte_string(const std::vector<std::byte>& input) {
+        /*
+        Example I/O (substring starting from "pos"):
+            "0:",           ->  ""
+            "7:bencode",    ->  "bencode"
+            "1:\0x27",      ->  "\0x27"
+            "10:horseHorse" ->  "horseHorse"
+        */
         return {};
     }
 };
@@ -99,6 +106,7 @@ std::vector<std::vector<std::byte>> convert_strings_to_bytes(const std::vector<s
     std::vector<std::vector<std::byte>> inputs(inputs_strings.size());
     for(uint64_t i_str=0; i_str<inputs_strings.size(); ++i_str) {
         const std::string str=inputs_strings[i_str];
+        // Q: Make this exactly str.size() somehow?
         inputs[i_str].reserve(str.size());
         for(uint64_t i_char=0; i_char<str.size(); ++i_char) {
             inputs[i_str].push_back(static_cast<std::byte>(str[i_char]));
@@ -122,7 +130,7 @@ void test_integers() {
         -42,
         -73,
     };
-    std::vector<int64_t> results;
+    std::vector<int64_t> results(inputs.size());
     for(const auto& input:inputs) {
         Parser P;
         results.push_back(P.parse_integer(input));
@@ -132,30 +140,50 @@ void test_integers() {
         assert(results[i]==expected[i]);
     }
 }
-void test_byte_strings() {
+void test_byte_strings1() {
     /*
     TODO:
         - Figure out how to even write tests
         - Do we need to support 0x0?
     */
-    std::vector<std::vector<std::byte>> inputs{
-
+    std::vector<std::string> inputs_strings{
+        "0:",
+        "7:bencode",
+        "1:\0x27",
+        "10:horseHorse"
     };
-    std::vector<int64_t> expected{
-
+    std::vector<std::string> expected_strings{
+        "",
+        "bencode",
+        "0x27",
+        "horseHorse"
     };
-    //std::vector<std::vector<std::byte>> inputs=convert_strings_to_bytes(inputs_strings);
+    std::vector<std::vector<std::byte>> inputs=convert_strings_to_bytes(inputs_strings);
+    std::vector<std::vector<std::byte>> expected=convert_strings_to_bytes(expected_strings);
 
-    std::vector<std::vector<std::byte>> results;
+    std::vector<std::vector<std::byte>> results(inputs.size());
     for(const auto& input:inputs) {
         Parser P;
         results.push_back(P.parse_byte_string(input));
     }
+    assert(results.size()==expected.size());
+    for(uint64_t i=0; i<expected.size(); ++i) {
+        assert(results[i].size()==expected[i].size());
+        assert(results[i]==expected[i]);
+    }
+}
+void test_byte_strings2() {
+    /*
+    TODO:
+    - Test for inputs with non-printable characters
+    - Can probably make this MCT test too
+    */
 }
 
 int main() {
     std::cout<<"test"<<std::endl;
     test_integers();
+    test_byte_strings1();
     return 0;
 }
 
