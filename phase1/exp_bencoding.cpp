@@ -72,12 +72,13 @@ public:
                 throw std::invalid_argument("#c2c85a");
             }
         }
-        if(start==end) {
+        if(start+1>end-1) {
             // ?
-            return 0;
+            throw std::invalid_argument("#286991");
         }
         pos=end+1;
-        return std::stoll(std::string_view(input).substr(start,end));
+        // TODO: Check if this makes a copy, std::string_view doesn't go in stoll
+        return std::stoll(input.substr(start+1,end-1));
     }
 };
 
@@ -86,12 +87,14 @@ void test_integers() {
     std::vector<std::string> inputs{
         "i0e",
         "i42e",
-        "i-42e"
+        "i-42e",
+        "i-73eHORSE",
     };
     std::vector<int64_t> expected{
         0,
         42,
-        -42
+        -42,
+        -73,
     };
     std::vector<int64_t> results;
     for(const auto& input:inputs) {
