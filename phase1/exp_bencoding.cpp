@@ -4,6 +4,7 @@
 #include <string>
 #include <cstdint>
 #include <cassert>
+#include <charconv>
 /*
 Testcases from
 https://en.wikipedia.org/wiki/Bencode
@@ -44,7 +45,7 @@ public:
         pos=0;
 
     }
-    int parse_single_integer(const std::vector<std::byte>& input) {
+    int parse_integer(const std::vector<std::byte>& input) {
         /*
         Example I/O (substring starting from "pos"):
             "i0e"       ->  0
@@ -61,7 +62,7 @@ public:
         int64_t start=0;
         int64_t end=0;
         int64_t count_digit_or_minus=0;
-        for(int64_t i=pos; i<pos+input.size(); ++i) {
+        for(uint64_t i=pos; i<input.size(); ++i) {
             /*
             This SHOULD only be i,e,0,1,2,3,4,5,6,7,8,9,-
             */
@@ -87,15 +88,17 @@ public:
         std::from_chars(reinterpret_cast<const char*>(input.data()+start+1),reinterpret_cast<const char*>(input.data()+end),res);
         return res;
     }
-
+    std::vector<std::byte> parse_byte_string(const std::vector<std::byte>& input) {
+        return {};
+    }
 };
 
 std::vector<std::vector<std::byte>> convert_strings_to_bytes(const std::vector<std::string>& inputs_strings) {
     std::vector<std::vector<std::byte>> inputs(inputs_strings.size());
-    for(int64_t i_str=0; i_str<inputs_strings.size(); ++i_str) {
+    for(uint64_t i_str=0; i_str<inputs_strings.size(); ++i_str) {
         const std::string str=inputs_strings[i_str];
         inputs[i_str].reserve(str.size());
-        for(int64_t i_char=0; i_char<str.size(); ++i_char) {
+        for(uint64_t i_char=0; i_char<str.size(); ++i_char) {
             inputs[i_str].push_back(static_cast<std::byte>(str[i_char]));
         }
     }
@@ -120,10 +123,10 @@ void test_integers() {
     std::vector<int64_t> results;
     for(const auto& input:inputs) {
         Parser P;
-        results.push_back(P.parse_single_integer(input));
+        results.push_back(P.parse_integer(input));
     }
     assert(results.size()==expected.size());
-    for(int64_t i=0; i<expected.size(); ++i) {
+    for(uint64_t i=0; i<expected.size(); ++i) {
         assert(results[i]==expected[i]);
     }
 }
@@ -137,19 +140,14 @@ void test_byte_strings() {
 
     };
     std::vector<int64_t> expected{
-        0,
-        42,
-        -42,
-        -73,
+
     };
-    std::vector<int64_t> results;
+    //std::vector<std::vector<std::byte>> inputs=convert_strings_to_bytes(inputs_strings);
+
+    std::vector<std::vector<std::byte>> results;
     for(const auto& input:inputs) {
         Parser P;
-        results.push_back(P.parse_integer(input));
-    }
-    assert(results.size()==expected.size());
-    for(int64_t i=0; i<expected.size(); ++i) {
-        assert(results[i]==expected[i]);
+        results.push_back(P.parse_byte_string(input));
     }
 }
 
