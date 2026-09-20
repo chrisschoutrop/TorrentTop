@@ -37,6 +37,8 @@ class Parser {
     - Parse basic inputs
     - Parse complex inputs
     - Handle malformed inputs
+        - What happens if the input string contains an 'i' but never reaches an 'e'?
+        - Overly long integers?
     - Clean this up once it works correctly
     */
 public:
@@ -45,7 +47,7 @@ public:
         pos=0;
 
     }
-    int parse_integer(const std::vector<std::byte>& input) {
+    int64_t parse_integer(const std::vector<std::byte>& input) {
         /*
         Example I/O (substring starting from "pos"):
             "i0e"       ->  0
