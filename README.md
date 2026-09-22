@@ -10,7 +10,7 @@ Intention:
 
 Ideas:
 
-- Header only, just use ccache and avoid duplication over header/implementation
+- Header only, just use ccache and avoid duplication over header/implementation. Or avoid the header/implementation split by using the fancy new modules from C++20.
 - Everything formatted with astyle
 - Tests for as much as possible
 - Develop something complex that's not im Fortran with 40 years of legacy
