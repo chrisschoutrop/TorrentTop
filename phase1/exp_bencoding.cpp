@@ -86,7 +86,7 @@ public:
         if(count_digit_or_minus==0) {
             throw std::invalid_argument("#286991");
         }
-        pos=end+1;
+        pos=end+1;  // Consume the e
         int64_t res;
         std::from_chars(reinterpret_cast<const char*>(input.data()+start),reinterpret_cast<const char*>(input.data()+end),res);
         return res;
@@ -114,7 +114,6 @@ public:
         */
         int64_t start_integer=pos;
         int64_t end_integer=0;
-        int64_t count_digit_or_minus=0;
         for(uint64_t i=pos; i<input.size(); ++i) {
             /*
             Assumptions (Checks for later malformed input handling):
@@ -129,15 +128,28 @@ public:
                 break;
             }
         }
-        pos=end_integer+1;
+        pos=end_integer+1;  // Consume the :
         int64_t integer_part;
         std::from_chars(reinterpret_cast<const char*>(input.data()+start_integer),reinterpret_cast<const char*>(input.data()+end_integer),integer_part);
         std::cout<<"start_integer: "<<start_integer<<std::endl;
         std::cout<<"end_integer: "<<end_integer<<std::endl;
         std::cout<<"integer_part: "<<integer_part<<std::endl;
 
+        std::vector<std::byte> res(integer_part);
+        /*
+        I suspect we can also do this with a memcpy and copy exactly integer_part bytes
+        but this also smells like some horrible security problem in the making
+        */
+        std::copy(input.begin()+pos,input.begin()+pos+integer_part,res.begin());
 
-        return {};
+        for (auto r:res)
+        {
+            std::cout<<(char)r;
+        }
+        std::cout<<std::endl;
+
+
+        return res;
     }
 };
 
@@ -187,19 +199,19 @@ void test_byte_strings1() {
     std::vector<std::string> inputs_strings{
         "0:",
         "7:bencode",
-        "1:\0x27",
+        "1:\x27",
         "10:horseHorse"
     };
     std::vector<std::string> expected_strings{
         "",
         "bencode",
-        "0x27",
+        "\x27",
         "horseHorse"
     };
     std::vector<std::vector<std::byte>> inputs=convert_strings_to_bytes(inputs_strings);
     std::vector<std::vector<std::byte>> expected=convert_strings_to_bytes(expected_strings);
 
-    std::vector<std::vector<std::byte>> results(inputs.size());
+    std::vector<std::vector<std::byte>> results;
     for(const auto& input:inputs) {
         Parser P;
         results.push_back(P.parse_byte(input));
