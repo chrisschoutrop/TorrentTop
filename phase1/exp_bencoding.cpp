@@ -40,6 +40,7 @@ class Parser {
         - What happens if the input string contains an 'i' but never reaches an 'e'?
         - Overly long integers?
     - Clean this up once it works correctly
+    - Test if pos is OK
     */
 public:
     int64_t pos;
@@ -70,7 +71,7 @@ public:
             */
             std::byte current_character=input[i];
             if(current_character==std::byte('i')) {
-                start=i;
+                start=i+1;  //+1 because we have to skip the 'i'
                 continue;
             } else if(current_character==std::byte('e')) {
                 end=i;
@@ -87,17 +88,55 @@ public:
         }
         pos=end+1;
         int64_t res;
-        std::from_chars(reinterpret_cast<const char*>(input.data()+start+1),reinterpret_cast<const char*>(input.data()+end),res);
+        std::from_chars(reinterpret_cast<const char*>(input.data()+start),reinterpret_cast<const char*>(input.data()+end),res);
         return res;
     }
-    std::vector<std::byte> parse_byte_string(const std::vector<std::byte>& input) {
+    std::vector<std::byte> parse_byte(const std::vector<std::byte>& input) {
         /*
         Example I/O (substring starting from "pos"):
             "0:",           ->  ""
             "7:bencode",    ->  "bencode"
             "1:\0x27",      ->  "\0x27"
             "10:horseHorse" ->  "horseHorse"
+
+        Note:
+            We don't have to loop through all the bytes,
+            assuming the length is OK.
+
+        Idea:
+            We have to find the part before the ":"
+            Convert the part before : to integer
+            Copy integer many symbols to output
+
+        TODO:
+            - Combine parse_integer's integer reading part with
+                what we do here for integer part into a function?
         */
+        int64_t start_integer=pos;
+        int64_t end_integer=0;
+        int64_t count_digit_or_minus=0;
+        for(uint64_t i=pos; i<input.size(); ++i) {
+            /*
+            Assumptions (Checks for later malformed input handling):
+                only read 0,1,2,3,4,5,6,7,8,9
+                i starts at a digit
+                There exists a :
+            */
+            std::byte current_character=input[i];
+            std::cout<<"input[i]: "<<(char)input[i]<<std::endl;
+            if(current_character==std::byte(':')) {
+                end_integer=i;
+                break;
+            }
+        }
+        pos=end_integer+1;
+        int64_t integer_part;
+        std::from_chars(reinterpret_cast<const char*>(input.data()+start_integer),reinterpret_cast<const char*>(input.data()+end_integer),integer_part);
+        std::cout<<"start_integer: "<<start_integer<<std::endl;
+        std::cout<<"end_integer: "<<end_integer<<std::endl;
+        std::cout<<"integer_part: "<<integer_part<<std::endl;
+
+
         return {};
     }
 };
@@ -130,7 +169,7 @@ void test_integers() {
         -42,
         -73,
     };
-    std::vector<int64_t> results(inputs.size());
+    std::vector<int64_t> results;
     for(const auto& input:inputs) {
         Parser P;
         results.push_back(P.parse_integer(input));
@@ -143,7 +182,6 @@ void test_integers() {
 void test_byte_strings1() {
     /*
     TODO:
-        - Figure out how to even write tests
         - Do we need to support 0x0?
     */
     std::vector<std::string> inputs_strings{
@@ -164,7 +202,7 @@ void test_byte_strings1() {
     std::vector<std::vector<std::byte>> results(inputs.size());
     for(const auto& input:inputs) {
         Parser P;
-        results.push_back(P.parse_byte_string(input));
+        results.push_back(P.parse_byte(input));
     }
     assert(results.size()==expected.size());
     for(uint64_t i=0; i<expected.size(); ++i) {
