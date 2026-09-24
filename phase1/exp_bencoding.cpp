@@ -39,6 +39,7 @@ class Parser {
     - Handle malformed inputs
         - What happens if the input string contains an 'i' but never reaches an 'e'?
         - Overly long integers?
+        - Mismatch in length & actual length in bytes
     - Clean this up once it works correctly
     - Test if pos is OK
     */
