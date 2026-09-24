@@ -59,10 +59,11 @@ Handling recursive mess:
     };
     Where we could make a std::vector<*Potato> which could contain any of the sub-potatoes.
 - Note: in bencode, the "base objects" are either int64_t or std::vector<std::byte>.
-    So Lists and Dicts MUST contain a std::vector<*Potato> as their m_data.
+    So Lists and Dicts MUST contain a std::vector<*Potato> as their m_data "contents" (+keys for dict).
 - How I think this helps is that we can now go through the input left-to-right, then
     if we encounter an integer, spawn an Integer subpotato, throw that into the std::vector<*Potato>
 - Note: std::list is probably terrible performance, but keeping it in the notes to help my mental model
+- We should also use something other than raw pointers in final version
 - I think this concept could work
 */
 class Parser {
