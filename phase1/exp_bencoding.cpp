@@ -62,18 +62,18 @@ public:
         - Skip everything until we hit 'e'
         - Get the string view of whatever is in between, pass to std::to_int() or whatever
         */
-        int64_t start=0;
+        int64_t start=pos+1; //+1 because we have to skip the 'i'
         int64_t end=0;
         int64_t count_digit_or_minus=0;
-        for(uint64_t i=pos; i<input.size(); ++i) {
+        if(input[pos]!=std::byte('i')) {
+            throw std::invalid_argument("#d213b1");
+        }
+        for(uint64_t i=start; i<input.size(); ++i) {
             /*
             This SHOULD only be i,e,0,1,2,3,4,5,6,7,8,9,-
             */
             std::byte current_character=input[i];
-            if(current_character==std::byte('i')) {
-                start=i+1;  //+1 because we have to skip the 'i'
-                continue;
-            } else if(current_character==std::byte('e')) {
+            if(current_character==std::byte('e')) {
                 end=i;
                 break;
             } else if(isdigit(std::to_integer<uint8_t>(current_character)) || current_character==std::byte('-')) {
@@ -134,9 +134,18 @@ public:
         std::vector<std::byte> res(integer_part);
         /*
         I suspect we can also do this with a memcpy and copy exactly integer_part bytes
-        but this also smells like some horrible security problem in the making
+        but this also smells like some horrible security problem in the making.
+        We have to check the sizes.
         */
-        std::copy(input.begin()+pos,input.begin()+pos+integer_part,res.begin());
+        auto start_copy=input.begin()+pos;
+        auto end_copy=input.begin()+pos+integer_part;
+        if(end_copy>input.end()) {
+            throw std::invalid_argument("#405932");
+        }
+        if(pos<0) {
+            throw std::invalid_argument("#4de083");
+        }
+        std::copy(start_copy,end_copy,res.begin());
         pos=pos+integer_part;
 
 
@@ -147,11 +156,10 @@ public:
 std::vector<std::vector<std::byte>> convert_strings_to_bytes(const std::vector<std::string>& inputs_strings) {
     std::vector<std::vector<std::byte>> inputs(inputs_strings.size());
     for(uint64_t i_str=0; i_str<inputs_strings.size(); ++i_str) {
-        const std::string str=inputs_strings[i_str];
-        // Q: Make this exactly str.size() somehow?
-        inputs[i_str].reserve(str.size());
+        const std::string& str=inputs_strings[i_str];
+        inputs[i_str].resize(str.size());
         for(uint64_t i_char=0; i_char<str.size(); ++i_char) {
-            inputs[i_str].push_back(static_cast<std::byte>(str[i_char]));
+            inputs[i_str][i_char]=static_cast<std::byte>(str[i_char]);
         }
     }
     return inputs;
