@@ -122,7 +122,6 @@ public:
                 There exists a :
             */
             std::byte current_character=input[i];
-            std::cout<<"input[i]: "<<(char)input[i]<<std::endl;
             if(current_character==std::byte(':')) {
                 end_integer=i;
                 break;
@@ -131,9 +130,6 @@ public:
         pos=end_integer+1;  // Consume the :
         int64_t integer_part;
         std::from_chars(reinterpret_cast<const char*>(input.data()+start_integer),reinterpret_cast<const char*>(input.data()+end_integer),integer_part);
-        std::cout<<"start_integer: "<<start_integer<<std::endl;
-        std::cout<<"end_integer: "<<end_integer<<std::endl;
-        std::cout<<"integer_part: "<<integer_part<<std::endl;
 
         std::vector<std::byte> res(integer_part);
         /*
@@ -141,12 +137,7 @@ public:
         but this also smells like some horrible security problem in the making
         */
         std::copy(input.begin()+pos,input.begin()+pos+integer_part,res.begin());
-
-        for (auto r:res)
-        {
-            std::cout<<(char)r;
-        }
-        std::cout<<std::endl;
+        pos=pos+integer_part;
 
 
         return res;
@@ -211,15 +202,14 @@ void test_byte_strings1() {
     std::vector<std::vector<std::byte>> inputs=convert_strings_to_bytes(inputs_strings);
     std::vector<std::vector<std::byte>> expected=convert_strings_to_bytes(expected_strings);
 
-    std::vector<std::vector<std::byte>> results;
-    for(const auto& input:inputs) {
-        Parser P;
-        results.push_back(P.parse_byte(input));
-    }
-    assert(results.size()==expected.size());
     for(uint64_t i=0; i<expected.size(); ++i) {
-        assert(results[i].size()==expected[i].size());
-        assert(results[i]==expected[i]);
+        Parser P;
+        std::vector<std::byte> result=P.parse_byte(inputs[i]);
+        assert(result.size()==expected[i].size());
+        assert(result==expected[i]);
+
+        int64_t expected_pos=inputs_strings[i].size();
+        assert(P.pos==expected_pos);
     }
 }
 void test_byte_strings2() {
