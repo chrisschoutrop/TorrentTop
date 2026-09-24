@@ -44,7 +44,7 @@ Handling recursive mess:
     - std::map<std::vector<std::byte>>,*Potato>
 - I vaguely remember this from a hackerrank problem long ago;
     Class Potato{
-    };    
+    };
     Class Integer : public Potato{
         int64_t m_data;
     };
@@ -65,6 +65,15 @@ Handling recursive mess:
 - Note: std::list is probably terrible performance, but keeping it in the notes to help my mental model
 - We should also use something other than raw pointers in final version
 - I think this concept could work
+
+Loot from poking someone about the problem:
+Meestal zet je er ook nog iets in om te kunnen weten van een AST node wat voor type het is
+Ten minste als je geen native rtti gebruikt
+struct AstNode {
+    enum Type { ... } type;
+    ...
+- RTTI = run-time type identification
+    https://en.wikipedia.org/wiki/Run-time_type_information
 */
 class Parser {
     /*
