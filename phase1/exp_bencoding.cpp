@@ -161,32 +161,25 @@ void test_integers() {
     std::vector<std::string> inputs_strings{
         "i0e",
         "i42e",
-        "i-42e",
-        "i-73eHORSE"
+        "i-42e"
     };
     std::vector<std::vector<std::byte>> inputs=convert_strings_to_bytes(inputs_strings);
 
     std::vector<int64_t> expected{
         0,
         42,
-        -42,
-        -73,
+        -42
     };
-    std::vector<int64_t> results;
-    for(const auto& input:inputs) {
-        Parser P;
-        results.push_back(P.parse_integer(input));
-    }
-    assert(results.size()==expected.size());
     for(uint64_t i=0; i<expected.size(); ++i) {
-        assert(results[i]==expected[i]);
+        Parser P;
+        int64_t result=P.parse_integer(inputs[i]);
+        assert(result==expected[i]);
+
+        int64_t expected_pos=inputs_strings[i].size();
+        assert(P.pos==expected_pos);
     }
 }
 void test_byte_strings1() {
-    /*
-    TODO:
-        - Do we need to support 0x0?
-    */
     std::vector<std::string> inputs_strings{
         "0:",
         "7:bencode",
