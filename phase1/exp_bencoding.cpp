@@ -29,6 +29,41 @@ Way forward (what locally seems OK):
     that way we can at least get a feel for LL1 parsing (per-element decisions)
 - How I think this works is we can use a/the stack, whenever we encounter something
     like "i" we call parse_integer().
+
+Handling recursive mess:
+- We can handle inputs that are only bytes or integers with 
+    std::vector<std::variant<int64_t,std::vector<std::byte>>>
+- Problem happens when we have to store lists/dicts, which can recursively
+    contain more lists/dicts.
+- I'm fully expecting that there is some <100 line solution to parse bencode out there
+    but that's not the point of this project.
+- ? *Potato where *Potato points to any of:
+    - int64_t
+    - std::vector<std::byte>
+    - std::list<*Potato>
+    - std::map<std::vector<std::byte>>,*Potato>
+- I vaguely remember this from a hackerrank problem long ago;
+    Class Potato{
+    };    
+    Class Integer : public Potato{
+        int64_t m_data;
+    };
+    Class Bytes : public Potato{
+        std::vector<std::byte> m_data;
+    };
+    Class List : public Potato{
+        std::list<*Potato> m_data;
+    };
+    Class Dict : public Potato{
+        std::map<std::vector<std::byte>>,*Potato> m_data
+    };
+    Where we could make a std::vector<*Potato> which could contain any of the sub-potatoes.
+- Note: in bencode, the "base objects" are either int64_t or std::vector<std::byte>.
+    So Lists and Dicts MUST contain a std::vector<*Potato> as their m_data.
+- How I think this helps is that we can now go through the input left-to-right, then
+    if we encounter an integer, spawn an Integer subpotato, throw that into the std::vector<*Potato>
+- Note: std::list is probably terrible performance, but keeping it in the notes to help my mental model
+- I think this concept could work
 */
 class Parser {
     /*
