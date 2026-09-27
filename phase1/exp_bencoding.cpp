@@ -153,11 +153,9 @@ public:
             throw std::invalid_argument("#286991");
         }
         pos=end+1;  // Consume the e
-        int64_t res;
-        std::from_chars(reinterpret_cast<const char*>(input.data()+start),reinterpret_cast<const char*>(input.data()+end),res);
-        Integer res2;
-        res2.m_data=res;
-        return res2;
+        Integer res;
+        std::from_chars(reinterpret_cast<const char*>(input.data()+start),reinterpret_cast<const char*>(input.data()+end),res.m_data);
+        return res;
     }
     Bytes parse_bytes(const std::vector<std::byte>& input) {
         /*
@@ -199,7 +197,9 @@ public:
         int64_t integer_part;
         std::from_chars(reinterpret_cast<const char*>(input.data()+start_integer),reinterpret_cast<const char*>(input.data()+end_integer),integer_part);
 
-        std::vector<std::byte> res(integer_part);
+        Bytes res;
+        res.m_data.resize(integer_part);
+        //std::vector<std::byte> res(integer_part);
         /*
         I suspect we can also do this with a memcpy and copy exactly integer_part bytes
         but this also smells like some horrible security problem in the making.
@@ -213,18 +213,20 @@ public:
         if(pos<0) {
             throw std::invalid_argument("#4de083");
         }
-        std::copy(start_copy,end_copy,res.begin());
+        std::copy(start_copy,end_copy,res.m_data.begin());
         pos=pos+integer_part;
 
-        Bytes res2;
-        res2.m_data=res;
-        return res2;
+        return res;
     }
     List parse_list(const std::vector<std::byte>& input) {
-
+        if(input[pos]!=std::byte('l')) {
+            throw std::invalid_argument("#8b1606");
+        }
     }
     Dict parse_dict(const std::vector<std::byte>& input) {
-
+        if(input[pos]!=std::byte('d')) {
+            throw std::invalid_argument("#6f44f7");
+        }
     }
 };
 
