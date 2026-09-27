@@ -222,11 +222,71 @@ public:
         if(input[pos]!=std::byte('l')) {
             throw std::invalid_argument("#8b1606");
         }
+        pos++;
+        List res;
+        std::byte current_character=input[pos];
+        if(current_character==std::byte('i')) {
+            Integer* new_element=new Integer;
+            *new_element=parse_integer(input);
+            res.m_data.push_back(new_element);
+        } else if(isdigit(std::to_integer<uint8_t>(current_character)) || current_character==std::byte('-')) {
+            Bytes* new_element=new Bytes;
+            *new_element=parse_bytes(input);
+            res.m_data.push_back(new_element);
+        }
+        else if(current_character==std::byte('l')) {
+            List* new_element=new List;
+            *new_element=parse_list(input);
+            res.m_data.push_back(new_element);
+        } else if(current_character==std::byte('l')) {
+            Dict* new_element=new Dict;
+            *new_element=parse_dict(input);
+            res.m_data.push_back(new_element);
+        } else {
+            throw std::invalid_argument("#51e02a");
+        }
+
+
+        if(input[pos]!=std::byte('e')) {
+            throw std::invalid_argument("#b14a04");
+        }
+        return res;
     }
     Dict parse_dict(const std::vector<std::byte>& input) {
         if(input[pos]!=std::byte('d')) {
             throw std::invalid_argument("#6f44f7");
         }
+        pos++;
+        Dict res;
+        std::byte current_character=input[pos];
+
+        Bytes key=parse_bytes(input);
+
+        if(current_character==std::byte('i')) {
+            Integer* new_element=new Integer;
+            *new_element=parse_integer(input);
+            res.m_data.insert({key.m_data,new_element});
+        } else if(isdigit(std::to_integer<uint8_t>(current_character)) || current_character==std::byte('-')) {
+            Bytes* new_element=new Bytes;
+            *new_element=parse_bytes(input);
+            res.m_data.insert({key.m_data,new_element});
+        }
+        else if(current_character==std::byte('l')) {
+            List* new_element=new List;
+            *new_element=parse_list(input);
+            res.m_data.insert({key.m_data,new_element});
+        } else if(current_character==std::byte('l')) {
+            Dict* new_element=new Dict;
+            *new_element=parse_dict(input);
+            res.m_data.insert({key.m_data,new_element});
+        } else {
+            throw std::invalid_argument("#51e02a");
+        }
+        if(input[pos]!=std::byte('e')) {
+            throw std::invalid_argument("#fe2d56");
+        }
+
+        return res;
     }
 };
 
