@@ -8,11 +8,11 @@
 #include <memory>
 /*
 Notes from Dave 27-Sep-2026:
-[ ] Waarom is input niet gewoon een field in de parser
-[ ] Gebruik span ipv const vector&
-[ ] Voeg een peek(offset = 0) methode toe ipv input.at(pos)
-[ ] Kan gewoon std::find gebruiken om de eerstvolgende e te vinden
-[ ] Waarom geen switch om de juiste variant te callen, en dat in een top level parse gooien
+[X] Why isn't input just a field in the parser?
+[ ] Use std::span instead of const std::vector&.
+[ ] Add a peek(offset = 0) method instead of input.at(pos).
+[ ] You can just use std::find to locate the next 'e'.
+[ ] Why not use a switch to call the correct variant and put that in a top-level parse function?
 [ ] Exceptions :(
 */
 /*
@@ -135,19 +135,19 @@ class Parser
 		    - Overly long integers?
 		    - Mismatch in length & actual length in bytes
 		- Clean this up once it works correctly
-		- Test if pos is OK
+		- Test if m_pos is OK
 		*/
 	public:
-		int64_t pos;
-		Parser()
+		int64_t m_pos;
+		const std::vector<std::byte> m_input;
+		Parser(const std::vector<std::byte>& input): m_input(input)
 		{
-			pos=0;
-
+			m_pos=0;
 		}
-		Integer parse_integer(const std::vector<std::byte>& input)
+		Integer parse_integer()
 		{
 			/*
-			Example I/O (substring starting from "pos"):
+			Example I/O (substring starting from "m_pos"):
 			    "i0e"       ->  0
 			    "i42e"      ->  42
 			    "i-42e"     ->  -42
@@ -166,21 +166,21 @@ class Parser
 			"i-e"
 			"i042e" (leading zero)  should parse fine as 42, but bencode says invalid
 			*/
-			int64_t start=pos+1; //+1 because we have to skip the 'i'
+			int64_t start=m_pos+1; //+1 because we have to skip the 'i'
 			int64_t end=start;
 			int64_t count_digit_or_minus=0;
 
-			if(input.at(pos)!=std::byte('i'))
+			if(m_input.at(m_pos)!=std::byte('i'))
 			{
 				throw std::invalid_argument("#d213b1");
 			}
 
-			for(uint64_t i=start; i<input.size(); ++i)
+			for(uint64_t i=start; i<m_input.size(); ++i)
 			{
 				/*
 				This SHOULD only be i,e,0,1,2,3,4,5,6,7,8,9,-
 				*/
-				std::byte current_character=input[i];
+				std::byte current_character=m_input[i];
 
 				if(current_character==std::byte('e'))
 				{
@@ -203,10 +203,10 @@ class Parser
 				throw std::invalid_argument("#286991");
 			}
 
-			pos=end+1;  // Consume the e
+			m_pos=end+1;  // Consume the e
 			Integer res;
-			const char* start_ptr=reinterpret_cast<const char*>(input.data()+start);
-			const char* end_ptr=reinterpret_cast<const char*>(input.data()+end);
+			const char* start_ptr=reinterpret_cast<const char*>(m_input.data()+start);
+			const char* end_ptr=reinterpret_cast<const char*>(m_input.data()+end);
 			auto [ptr, ec] =std::from_chars(start_ptr,end_ptr,res.m_data);
 
 			if(ec!=std::errc() || ptr !=end_ptr)
@@ -216,10 +216,10 @@ class Parser
 
 			return res;
 		}
-		Bytes parse_bytes(const std::vector<std::byte>& input)
+		Bytes parse_bytes()
 		{
 			/*
-			Example I/O (substring starting from "pos"):
+			Example I/O (substring starting from "m_pos"):
 			    "0:",           ->  ""
 			    "7:bencode",    ->  "bencode"
 			    "1:\0x27",      ->  "\0x27"
@@ -238,10 +238,10 @@ class Parser
 			    - Combine parse_integer's integer reading part with
 			        what we do here for integer part into a function?
 			*/
-			int64_t start_integer=pos;
+			int64_t start_integer=m_pos;
 			int64_t end_integer=start_integer;
 
-			for(uint64_t i=pos; i<input.size(); ++i)
+			for(uint64_t i=m_pos; i<m_input.size(); ++i)
 			{
 				/*
 				Assumptions (Checks for later malformed input handling):
@@ -249,7 +249,7 @@ class Parser
 				    i starts at a digit
 				    There exists a :
 				*/
-				std::byte current_character=input[i];
+				std::byte current_character=m_input[i];
 
 				if(current_character==std::byte(':'))
 				{
@@ -258,10 +258,10 @@ class Parser
 				}
 			}
 
-			pos=end_integer+1;  // Consume the :
+			m_pos=end_integer+1;  // Consume the :
 			int64_t integer_part;
-			const char* start_ptr=reinterpret_cast<const char*>(input.data()+start_integer);
-			const char* end_ptr=reinterpret_cast<const char*>(input.data()+end_integer);
+			const char* start_ptr=reinterpret_cast<const char*>(m_input.data()+start_integer);
+			const char* end_ptr=reinterpret_cast<const char*>(m_input.data()+end_integer);
 			auto [ptr, ec]=std::from_chars(start_ptr,end_ptr,integer_part);
 
 			if(ec!=std::errc()||ptr!=end_ptr)
@@ -281,50 +281,51 @@ class Parser
 			but this also smells like some horrible security problem in the making.
 			We have to check the sizes.
 			*/
-			//if(end_copy>input.end()) // Doesn't work since if end_copy is past the end it's UB
-			if(integer_part>static_cast<int64_t>(input.size())-pos)
+			//if(end_copy>m_input.end()) // Doesn't work since if end_copy is past the end it's UB
+			if(integer_part>static_cast<int64_t>(m_input.size())-m_pos)
 			{
 				throw std::invalid_argument("#405932");
 			}
+
 			res.m_data.resize(integer_part);
 
-			auto start_copy=input.begin()+pos;
-			auto end_copy=input.begin()+pos+integer_part;
+			auto start_copy=m_input.begin()+m_pos;
+			auto end_copy=m_input.begin()+m_pos+integer_part;
 
 			std::copy(start_copy,end_copy,res.m_data.begin());
-			pos=pos+integer_part;
+			m_pos=m_pos+integer_part;
 
 			return res;
 		}
-		List parse_list(const std::vector<std::byte>& input)
+		List parse_list()
 		{
-			if(input.at(pos)!=std::byte('l'))
+			if(m_input.at(m_pos)!=std::byte('l'))
 			{
 				throw std::invalid_argument("#8b1606");
 			}
 
-			pos++;
+			m_pos++;
 			List res;
 
-			while(input.at(pos)!=std::byte('e'))
+			while(m_input.at(m_pos)!=std::byte('e'))
 			{
-				std::byte current_character=input.at(pos);
+				std::byte current_character=m_input.at(m_pos);
 
 				if(current_character==std::byte('i'))
 				{
-					res.m_data.emplace_back(std::make_unique<Integer>(parse_integer(input)));
+					res.m_data.emplace_back(std::make_unique<Integer>(parse_integer()));
 				}
 				else if(locale_proof_isdigit(std::to_integer<uint8_t>(current_character)))
 				{
-					res.m_data.emplace_back(std::make_unique<Bytes>(parse_bytes(input)));
+					res.m_data.emplace_back(std::make_unique<Bytes>(parse_bytes()));
 				}
 				else if(current_character==std::byte('l'))
 				{
-					res.m_data.emplace_back(std::make_unique<List>(parse_list(input)));
+					res.m_data.emplace_back(std::make_unique<List>(parse_list()));
 				}
 				else if(current_character==std::byte('d'))
 				{
-					res.m_data.emplace_back(std::make_unique<Dict>(parse_dict(input)));
+					res.m_data.emplace_back(std::make_unique<Dict>(parse_dict()));
 				}
 				else
 				{
@@ -332,10 +333,10 @@ class Parser
 				}
 			}
 
-			pos++;
+			m_pos++;
 			return res;
 		}
-		Dict parse_dict(const std::vector<std::byte>& input)
+		Dict parse_dict()
 		{
 			/*
 			TODO:
@@ -344,34 +345,34 @@ class Parser
 			- Duplicate keys are silently dropped: map::emplace is a no-op for an existing key (the freshly-built
 			    value is created and immediately destroyed). You'll want a reject, not a drop.
 			*/
-			if(input.at(pos)!=std::byte('d'))
+			if(m_input.at(m_pos)!=std::byte('d'))
 			{
 				throw std::invalid_argument("#6f44f7");
 			}
 
-			pos++;
+			m_pos++;
 			Dict res;
 
-			while(input.at(pos)!=std::byte('e'))
+			while(m_input.at(m_pos)!=std::byte('e'))
 			{
-				Bytes key=parse_bytes(input);
-				std::byte current_character=input.at(pos);
+				Bytes key=parse_bytes();
+				std::byte current_character=m_input.at(m_pos);
 
 				if(current_character==std::byte('i'))
 				{
-					res.m_data.emplace(key.m_data,std::make_unique<Integer>(parse_integer(input)));
+					res.m_data.emplace(key.m_data,std::make_unique<Integer>(parse_integer()));
 				}
 				else if(locale_proof_isdigit(std::to_integer<uint8_t>(current_character)))
 				{
-					res.m_data.emplace(key.m_data,std::make_unique<Bytes>(parse_bytes(input)));
+					res.m_data.emplace(key.m_data,std::make_unique<Bytes>(parse_bytes()));
 				}
 				else if(current_character==std::byte('l'))
 				{
-					res.m_data.emplace(key.m_data,std::make_unique<List>(parse_list(input)));
+					res.m_data.emplace(key.m_data,std::make_unique<List>(parse_list()));
 				}
 				else if(current_character==std::byte('d'))
 				{
-					res.m_data.emplace(key.m_data,std::make_unique<Dict>(parse_dict(input)));
+					res.m_data.emplace(key.m_data,std::make_unique<Dict>(parse_dict()));
 				}
 				else
 				{
@@ -379,7 +380,7 @@ class Parser
 				}
 			}
 
-			pos++;
+			m_pos++;
 
 			return res;
 		}
@@ -427,12 +428,12 @@ void test_integers()
 
 	for(uint64_t i=0; i<expected.size(); ++i)
 	{
-		Parser P;
-		Integer result=P.parse_integer(inputs[i]);
+		Parser P(inputs[i]);
+		Integer result=P.parse_integer();
 		assert(result.m_data==expected[i]);
 
 		int64_t expected_pos=inputs_strings[i].size();
-		assert(P.pos==expected_pos);
+		assert(P.m_pos==expected_pos);
 	}
 }
 void test_byte_strings1()
@@ -456,13 +457,13 @@ void test_byte_strings1()
 
 	for(uint64_t i=0; i<expected.size(); ++i)
 	{
-		Parser P;
-		Bytes result=P.parse_bytes(inputs[i]);
+		Parser P(inputs[i]);
+		Bytes result=P.parse_bytes();
 		assert(result.m_data.size()==expected[i].size());
 		assert(result.m_data==expected[i]);
 
 		int64_t expected_pos=inputs_strings[i].size();
-		assert(P.pos==expected_pos);
+		assert(P.m_pos==expected_pos);
 	}
 }
 void test_byte_strings2()
@@ -482,13 +483,13 @@ void test_list()
 		std::vector<std::byte> expected_Bytes=convert_string_to_bytes("bencode");
 		int64_t expected_Integer=-20;
 
-		Parser P;
-		List result=P.parse_list(input);
+		Parser P(input);
+		List result=P.parse_list();
 		assert(result.m_data.size()==2);
 		assert(static_cast<Bytes*>(result.m_data[0].get())->m_data==expected_Bytes);
 		assert(static_cast<Integer*>(result.m_data[1].get())->m_data==expected_Integer);
 		int64_t expected_pos=input_string.size();
-		assert(P.pos==expected_pos);
+		assert(P.m_pos==expected_pos);
 	}
 }
 
