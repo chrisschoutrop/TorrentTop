@@ -5,9 +5,7 @@
 #include <cstdint>
 #include <cassert>
 #include <charconv>
-#include <list>
 #include <map>
-#include <cctype>
 #include <memory>
 /*
 Testcases from
@@ -78,10 +76,21 @@ struct AstNode {
     ...
 - RTTI = run-time type identification, then we don't have to rely on static_cast
     https://en.wikipedia.org/wiki/Run-time_type_information
-- fancy pointers instead of Potato*
 */
+bool locale_proof_isdigit(const char ch){
+	/*
+	From: https://en.cppreference.com/cpp/string/byte/isdigit
+		isdigit and isxdigit are the only standard narrow character classification
+		functions that are not affected by the currently installed C locale. 
+		although some implementations (e.g. Microsoft in 1252 codepage) may classify
+		additional single-byte characters as digits. 
+	*/
+	return (ch >= '0' && ch <= '9');
+}
+
 class Potato
 {
+		virtual ~Potato() = default;
 };
 class Integer : public Potato
 {
@@ -148,7 +157,7 @@ class Parser
 			"i042e" (leading zero)  should parse fine as 42, but bencode says invalid
 			*/
 			int64_t start=pos+1; //+1 because we have to skip the 'i'
-			int64_t end=0;
+			int64_t end=start;
 			int64_t count_digit_or_minus=0;
 
 			if(input.at(pos)!=std::byte('i'))
@@ -168,7 +177,7 @@ class Parser
 					end=i;
 					break;
 				}
-				else if(isdigit(std::to_integer<uint8_t>(current_character)) || current_character==std::byte('-'))
+				else if(locale_proof_isdigit(std::to_integer<uint8_t>(current_character)) || current_character==std::byte('-'))
 				{
 					count_digit_or_minus++;
 					continue;
@@ -220,7 +229,7 @@ class Parser
 			        what we do here for integer part into a function?
 			*/
 			int64_t start_integer=pos;
-			int64_t end_integer=0;
+			int64_t end_integer=start_integer;
 
 			for(uint64_t i=pos; i<input.size(); ++i)
 			{
@@ -264,13 +273,14 @@ class Parser
 			but this also smells like some horrible security problem in the making.
 			We have to check the sizes.
 			*/
-			auto start_copy=input.begin()+pos;
-			auto end_copy=input.begin()+pos+integer_part;
 
-			if(end_copy>input.end())
+			//if(end_copy>input.end()) // Doesn't work since if end_copy is past the end it's UB
+			if(integer_part>static_cast<int64_t>(input.size())-pos)
 			{
 				throw std::invalid_argument("#405932");
-			}
+			}			
+			auto start_copy=input.begin()+pos;
+			auto end_copy=input.begin()+pos+integer_part;
 
 			std::copy(start_copy,end_copy,res.m_data.begin());
 			pos=pos+integer_part;
@@ -295,9 +305,8 @@ class Parser
 				{
 					res.m_data.emplace_back(std::make_unique<Integer>(parse_integer(input)));
 				}
-				else if(isdigit(std::to_integer<uint8_t>(current_character)))
+				else if(locale_proof_isdigit(std::to_integer<uint8_t>(current_character)))
 				{
-					std::unique_ptr<Potato> new_element=std::make_unique<Bytes>();
 					res.m_data.emplace_back(std::make_unique<Bytes>(parse_bytes(input)));
 				}
 				else if(current_character==std::byte('l'))
@@ -314,16 +323,18 @@ class Parser
 				}
 			}
 
-			if(input.at(pos)!=std::byte('e'))
-			{
-				throw std::invalid_argument("#b14a04");
-			}
-
 			pos++;
 			return res;
 		}
 		Dict parse_dict(const std::vector<std::byte>& input)
 		{
+			/*
+			TODO:
+			- std::map silently reorders unsorted keys. BEP3 requires dictionary keys in ascending byte order, 
+				so d3:woof3:dog3:cow3:mooe is spec-invalid but your parser accepts it.
+			- Duplicate keys are silently dropped: map::emplace is a no-op for an existing key (the freshly-built 
+				value is created and immediately destroyed). You'll want a reject, not a drop.
+			*/
 			if(input.at(pos)!=std::byte('d'))
 			{
 				throw std::invalid_argument("#6f44f7");
@@ -341,7 +352,7 @@ class Parser
 				{
 					res.m_data.emplace(key.m_data,std::make_unique<Integer>(parse_integer(input)));
 				}
-				else if(isdigit(std::to_integer<uint8_t>(current_character)) || current_character==std::byte('-'))
+				else if(locale_proof_isdigit(std::to_integer<uint8_t>(current_character)))
 				{
 					res.m_data.emplace(key.m_data,std::make_unique<Bytes>(parse_bytes(input)));
 				}
@@ -357,11 +368,6 @@ class Parser
 				{
 					throw std::invalid_argument("#51e02a");
 				}
-			}
-
-			if(input.at(pos)!=std::byte('e'))
-			{
-				throw std::invalid_argument("#fe2d56");
 			}
 
 			pos++;
@@ -470,12 +476,17 @@ void test_list()
 		Parser P;
 		List result=P.parse_list(input);
 		assert(result.m_data.size()==2);
-		// Doesn't work, idk how to fix:
 		assert(static_cast<Bytes*>(result.m_data[0].get())->m_data==expected_Bytes);
 		assert(static_cast<Integer*>(result.m_data[1].get())->m_data==expected_Integer);
 		int64_t expected_pos=input_string.size();
 		assert(P.pos==expected_pos);
 	}
+}
+
+void test_dict(){
+	/*
+	TODO
+	*/
 }
 
 int main()
@@ -484,6 +495,7 @@ int main()
 	test_integers();
 	test_byte_strings1();
 	test_list();
+	test_dict();
 	return 0;
 }
 
