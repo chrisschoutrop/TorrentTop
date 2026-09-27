@@ -7,6 +7,8 @@
 #include <charconv>
 #include <list>
 #include <map>
+#include <cctype>
+#include <memory>
 /*
 Testcases from
 https://en.wikipedia.org/wiki/Bencode
@@ -94,12 +96,13 @@ class Bytes : public Potato
 class List : public Potato
 {
 	public:
-		std::vector<Potato*> m_data;
+		std::vector<std::unique_ptr<Potato>> m_data;
 };
-class Dict : public Potato
+class Dict :
+	public Potato
 {
 	public:
-		std::map<std::vector<std::byte>,Potato*> m_data;
+		std::map<std::vector<std::byte>,std::unique_ptr<Potato>> m_data;
 };
 class Parser
 {
@@ -136,6 +139,13 @@ class Parser
 			- We find the 'i'
 			- Skip everything until we hit 'e'
 			- Get the string view of whatever is in between, pass to std::to_int() or whatever
+			*/
+			/*
+			Malformed input check ideas
+			"i42" (no e)
+			"42" (no :) in parse_bytes
+			"i-e"
+			"i042e" (leading zero)  should parse fine as 42, but bencode says invalid
 			*/
 			int64_t start=pos+1; //+1 because we have to skip the 'i'
 			int64_t end=0;
@@ -262,11 +272,6 @@ class Parser
 				throw std::invalid_argument("#405932");
 			}
 
-			if(pos<0)
-			{
-				throw std::invalid_argument("#4de083");
-			}
-
 			std::copy(start_copy,end_copy,res.m_data.begin());
 			pos=pos+integer_part;
 
@@ -288,27 +293,20 @@ class Parser
 
 				if(current_character==std::byte('i'))
 				{
-					Integer* new_element=new Integer;
-					*new_element=parse_integer(input);
-					res.m_data.push_back(new_element);
+					res.m_data.emplace_back(std::make_unique<Integer>(parse_integer(input)));
 				}
 				else if(isdigit(std::to_integer<uint8_t>(current_character)))
 				{
-					Bytes* new_element=new Bytes;
-					*new_element=parse_bytes(input);
-					res.m_data.push_back(new_element);
+					std::unique_ptr<Potato> new_element=std::make_unique<Bytes>();
+					res.m_data.emplace_back(std::make_unique<Bytes>(parse_bytes(input)));
 				}
 				else if(current_character==std::byte('l'))
 				{
-					List* new_element=new List;
-					*new_element=parse_list(input);
-					res.m_data.push_back(new_element);
+					res.m_data.emplace_back(std::make_unique<List>(parse_list(input)));
 				}
 				else if(current_character==std::byte('d'))
 				{
-					Dict* new_element=new Dict;
-					*new_element=parse_dict(input);
-					res.m_data.push_back(new_element);
+					res.m_data.emplace_back(std::make_unique<Dict>(parse_dict(input)));
 				}
 				else
 				{
@@ -336,32 +334,24 @@ class Parser
 
 			while(input.at(pos)!=std::byte('e'))
 			{
-				std::byte current_character=input.at(pos);
 				Bytes key=parse_bytes(input);
+				std::byte current_character=input.at(pos);
 
 				if(current_character==std::byte('i'))
 				{
-					Integer* new_element=new Integer;
-					*new_element=parse_integer(input);
-					res.m_data.insert({key.m_data,new_element});
+					res.m_data.emplace(key.m_data,std::make_unique<Integer>(parse_integer(input)));
 				}
 				else if(isdigit(std::to_integer<uint8_t>(current_character)) || current_character==std::byte('-'))
 				{
-					Bytes* new_element=new Bytes;
-					*new_element=parse_bytes(input);
-					res.m_data.insert({key.m_data,new_element});
+					res.m_data.emplace(key.m_data,std::make_unique<Bytes>(parse_bytes(input)));
 				}
 				else if(current_character==std::byte('l'))
 				{
-					List* new_element=new List;
-					*new_element=parse_list(input);
-					res.m_data.insert({key.m_data,new_element});
+					res.m_data.emplace(key.m_data,std::make_unique<List>(parse_list(input)));
 				}
 				else if(current_character==std::byte('d'))
 				{
-					Dict* new_element=new Dict;
-					*new_element=parse_dict(input);
-					res.m_data.insert({key.m_data,new_element});
+					res.m_data.emplace(key.m_data,std::make_unique<Dict>(parse_dict(input)));
 				}
 				else
 				{
@@ -471,21 +461,20 @@ void test_byte_strings2()
 void test_list()
 {
 	{
-		std::vector<std::byte> input=convert_string_to_bytes("l7:bencodei-20ee");
+		std::string input_string="l7:bencodei-20ee";
+		std::vector<std::byte> input=convert_string_to_bytes(input_string);
 
-		List res;
-		Bytes* r1=new Bytes;
-		r1->m_data=convert_string_to_bytes("bencode");
-		res.m_data.push_back(r1);
-		Integer* r2=new Integer;
-		r2->m_data=-20;
-		res.m_data.push_back(r2);
+		std::vector<std::byte> expected_Bytes=convert_string_to_bytes("bencode");
+		int64_t expected_Integer=-20;
 
 		Parser P;
 		List result=P.parse_list(input);
 		assert(result.m_data.size()==2);
-		assert(static_cast<Bytes*>(result.m_data[0])->m_data==r1->m_data);
-		assert(static_cast<Integer*>(result.m_data[1])->m_data==r2->m_data);
+		// Doesn't work, idk how to fix:
+		assert(static_cast<Bytes*>(result.m_data[0].get())->m_data==expected_Bytes);
+		assert(static_cast<Integer*>(result.m_data[1].get())->m_data==expected_Integer);
+		int64_t expected_pos=input_string.size();
+		assert(P.pos==expected_pos);
 	}
 }
 
