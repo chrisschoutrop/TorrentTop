@@ -6,6 +6,7 @@
 #include <charconv>
 #include <map>
 #include <memory>
+#include <span>
 /*
 Notes from Dave 27-Sep-2026:
 [X] Why isn't input just a field in the parser?
@@ -140,28 +141,46 @@ class Parser
 	public:
 		int64_t m_pos;
 
-		const std::vector<std::byte> m_input;
-		Parser(const std::vector<std::byte>& input): m_input(input)
+		// std::span/view such that the Parser does not
+		// copy everything, and we can view in chunks
+		// ownership is with whatever passed in the input
+		std::span<const std::byte> m_input;
+		Parser(std::span<const std::byte> input): m_input(input)
 		{
 			m_pos=0;
 		}
 		Potato parse()
 		{
 			// TODO, switch to call correct function for parsing entire bencoded input
+			/*
+			TODO Qwen warned for this problem:
+			    The one thing to fix before you implement parse(): Potato parse() returns
+			    by value, and its first real line — return parse_list(); — will slice.
+			    Copying a List into a Potato keeps only the base subobject;
+			    the vector<unique_ptr<Potato>> (i.e. the entire parsed tree) is destroyed.
+			    It compiles clean, no warning, silent data loss — the classic
+			    polymorphic-return trap. The top-level parse must return ownership,
+			    the same way List/Dict already store children:
+			    std::unique_ptr<Potato> parse();
+			    The body is the same if/else chain you already wrote in parse_list (a real
+			    switch works too — it needs an integer type, so
+			    switch(std::to_integer<unsigned char>(peek())) with the digit case in default).
+			    Small related point: the return {} stub compiles (a bare Potato),
+			    but it's a silent "unimplemented"; throw std::logic_error("not implemented");
+			    fails loudly instead — and add <stdexcept> if it doesn't come in transitively.
+			*/
 			return {};
 		}
 		std::byte peek(const int64_t offset=0)
 		{
 			int64_t location=offset+m_pos;
 
-			if(location<0 || location>=m_input.size())
+			if(location<0 || (size_t)location>=m_input.size())
 			{
-				// TODO: This may not be entirely OK because of the i64<>u64
-				// so for now there is also the .at(location) below
 				throw std::invalid_argument("#04c706");
 			}
 
-			return m_input.at(location);
+			return m_input[location];
 		}
 		Integer parse_integer()
 		{
