@@ -1,5 +1,4 @@
 #include <iostream>
-#include <variant>
 #include <vector>
 #include <string>
 #include <cstdint>
@@ -77,7 +76,7 @@ struct AstNode {
 - RTTI = run-time type identification, then we don't have to rely on static_cast
     https://en.wikipedia.org/wiki/Run-time_type_information
 */
-bool locale_proof_isdigit(const char ch)
+bool locale_proof_isdigit(const uint8_t ch)
 {
 	/*
 	From: https://en.cppreference.com/cpp/string/byte/isdigit
@@ -268,19 +267,17 @@ class Parser
 				throw std::invalid_argument("#6902a2");
 			}
 
-			res.m_data.resize(integer_part);
-			//std::vector<std::byte> res(integer_part);
 			/*
 			I suspect we can also do this with a memcpy and copy exactly integer_part bytes
 			but this also smells like some horrible security problem in the making.
 			We have to check the sizes.
 			*/
-
 			//if(end_copy>input.end()) // Doesn't work since if end_copy is past the end it's UB
 			if(integer_part>static_cast<int64_t>(input.size())-pos)
 			{
 				throw std::invalid_argument("#405932");
 			}
+			res.m_data.resize(integer_part);
 
 			auto start_copy=input.begin()+pos;
 			auto end_copy=input.begin()+pos+integer_part;
