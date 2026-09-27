@@ -77,19 +77,21 @@ struct AstNode {
 - RTTI = run-time type identification, then we don't have to rely on static_cast
     https://en.wikipedia.org/wiki/Run-time_type_information
 */
-bool locale_proof_isdigit(const char ch){
+bool locale_proof_isdigit(const char ch)
+{
 	/*
 	From: https://en.cppreference.com/cpp/string/byte/isdigit
-		isdigit and isxdigit are the only standard narrow character classification
-		functions that are not affected by the currently installed C locale. 
-		although some implementations (e.g. Microsoft in 1252 codepage) may classify
-		additional single-byte characters as digits. 
+	    isdigit and isxdigit are the only standard narrow character classification
+	    functions that are not affected by the currently installed C locale.
+	    although some implementations (e.g. Microsoft in 1252 codepage) may classify
+	    additional single-byte characters as digits.
 	*/
 	return (ch >= '0' && ch <= '9');
 }
 
 class Potato
 {
+	public:
 		virtual ~Potato() = default;
 };
 class Integer : public Potato
@@ -278,7 +280,8 @@ class Parser
 			if(integer_part>static_cast<int64_t>(input.size())-pos)
 			{
 				throw std::invalid_argument("#405932");
-			}			
+			}
+
 			auto start_copy=input.begin()+pos;
 			auto end_copy=input.begin()+pos+integer_part;
 
@@ -330,10 +333,10 @@ class Parser
 		{
 			/*
 			TODO:
-			- std::map silently reorders unsorted keys. BEP3 requires dictionary keys in ascending byte order, 
-				so d3:woof3:dog3:cow3:mooe is spec-invalid but your parser accepts it.
-			- Duplicate keys are silently dropped: map::emplace is a no-op for an existing key (the freshly-built 
-				value is created and immediately destroyed). You'll want a reject, not a drop.
+			- std::map silently reorders unsorted keys. BEP3 requires dictionary keys in ascending byte order,
+			    so d3:woof3:dog3:cow3:mooe is spec-invalid but your parser accepts it.
+			- Duplicate keys are silently dropped: map::emplace is a no-op for an existing key (the freshly-built
+			    value is created and immediately destroyed). You'll want a reject, not a drop.
 			*/
 			if(input.at(pos)!=std::byte('d'))
 			{
@@ -483,7 +486,8 @@ void test_list()
 	}
 }
 
-void test_dict(){
+void test_dict()
+{
 	/*
 	TODO
 	*/
