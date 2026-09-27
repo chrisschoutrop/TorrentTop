@@ -76,6 +76,7 @@ struct AstNode {
     ...
 - RTTI = run-time type identification, then we don't have to rely on static_cast
     https://en.wikipedia.org/wiki/Run-time_type_information
+- fancy pointers instead of Potato*
 */
 class Potato
 {
@@ -139,7 +140,7 @@ public:
         int64_t start=pos+1; //+1 because we have to skip the 'i'
         int64_t end=0;
         int64_t count_digit_or_minus=0;
-        if(input[pos]!=std::byte('i'))
+        if(input.at(pos)!=std::byte('i'))
         {
             throw std::invalid_argument("#d213b1");
         }
@@ -170,7 +171,10 @@ public:
         }
         pos=end+1;  // Consume the e
         Integer res;
-        std::from_chars(reinterpret_cast<const char*>(input.data()+start),reinterpret_cast<const char*>(input.data()+end),res.m_data);
+        std::from_chars_result ec=std::from_chars(reinterpret_cast<const char*>(input.data()+start),reinterpret_cast<const char*>(input.data()+end),res.m_data);
+        if(ec!=0){
+            throw std::runtime_error("#7defba");
+        }
         return res;
     }
     Bytes parse_bytes(const std::vector<std::byte>& input)
@@ -214,7 +218,10 @@ public:
         }
         pos=end_integer+1;  // Consume the :
         int64_t integer_part;
-        std::from_chars(reinterpret_cast<const char*>(input.data()+start_integer),reinterpret_cast<const char*>(input.data()+end_integer),integer_part);
+        std::from_chars_result ec=std::from_chars(reinterpret_cast<const char*>(input.data()+start_integer),reinterpret_cast<const char*>(input.data()+end_integer),integer_part);
+        if(ec!=0){
+            throw std::runtime_error("#c9f1aa");
+        }
 
         Bytes res;
         if(integer_part<0)
@@ -245,15 +252,15 @@ public:
     }
     List parse_list(const std::vector<std::byte>& input)
     {
-        if(input[pos]!=std::byte('l'))
+        if(input.at(pos)!=std::byte('l'))
         {
             throw std::invalid_argument("#8b1606");
         }
         pos++;
         List res;
-        while(input[pos]!=std::byte('e'))
+        while(input.at(pos)!=std::byte('e'))
         {
-            std::byte current_character=input[pos];
+            std::byte current_character=input.at(pos);
             if(current_character==std::byte('i'))
             {
                 Integer* new_element=new Integer;
@@ -272,7 +279,7 @@ public:
                 *new_element=parse_list(input);
                 res.m_data.push_back(new_element);
             }
-            else if(current_character==std::byte('l'))
+            else if(current_character==std::byte('d'))
             {
                 Dict* new_element=new Dict;
                 *new_element=parse_dict(input);
@@ -284,7 +291,7 @@ public:
             }
         }
 
-        if(input[pos]!=std::byte('e'))
+        if(input.at(pos)!=std::byte('e'))
         {
             throw std::invalid_argument("#b14a04");
         }
@@ -293,16 +300,16 @@ public:
     }
     Dict parse_dict(const std::vector<std::byte>& input)
     {
-        if(input[pos]!=std::byte('d'))
+        if(input.at(pos)!=std::byte('d'))
         {
             throw std::invalid_argument("#6f44f7");
         }
         pos++;
         Dict res;
-        std::byte current_character=input[pos];
-
-        while(input[pos]!=std::byte('e'))
+        
+        while(input.at(pos)!=std::byte('e'))
         {
+            std::byte current_character=input.at(pos);
             Bytes key=parse_bytes(input);
 
             if(current_character==std::byte('i'))
@@ -323,7 +330,7 @@ public:
                 *new_element=parse_list(input);
                 res.m_data.insert({key.m_data,new_element});
             }
-            else if(current_character==std::byte('l'))
+            else if(current_character==std::byte('d'))
             {
                 Dict* new_element=new Dict;
                 *new_element=parse_dict(input);
@@ -333,9 +340,8 @@ public:
             {
                 throw std::invalid_argument("#51e02a");
             }
-            pos++;
         }
-        if(input[pos]!=std::byte('e'))
+        if(input.at(pos)!=std::byte('e'))
         {
             throw std::invalid_argument("#fe2d56");
         }
