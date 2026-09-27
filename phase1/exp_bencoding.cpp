@@ -7,6 +7,15 @@
 #include <map>
 #include <memory>
 /*
+Notes from Dave 27-Sep-2026:
+[ ] Waarom is input niet gewoon een field in de parser
+[ ] Gebruik span ipv const vector&
+[ ] Voeg een peek(offset = 0) methode toe ipv input.at(pos)
+[ ] Kan gewoon std::find gebruiken om de eerstvolgende e te vinden
+[ ] Waarom geen switch om de juiste variant te callen, en dat in een top level parse gooien
+[ ] Exceptions :(
+*/
+/*
 Testcases from
 https://en.wikipedia.org/wiki/Bencode
 https://www.bittorrent.org/beps/bep_0003.html
