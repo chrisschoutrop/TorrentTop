@@ -77,25 +77,31 @@ struct AstNode {
 - RTTI = run-time type identification
     https://en.wikipedia.org/wiki/Run-time_type_information
 */
-class Potato {
+class Potato
+{
 };
-class Integer : public Potato {
+class Integer : public Potato
+{
 public:
     int64_t m_data;
 };
-class Bytes : public Potato {
+class Bytes : public Potato
+{
 public:
     std::vector<std::byte> m_data;
 };
-class List : public Potato {
+class List : public Potato
+{
 public:
-    std::list<Potato*> m_data;
+    std::vector<Potato*> m_data;
 };
-class Dict : public Potato {
+class Dict : public Potato
+{
 public:
     std::map<std::vector<std::byte>,Potato*> m_data;
 };
-class Parser {
+class Parser
+{
     /*
     TODO:
     - Input should be a vector of bytes, not strings?
@@ -110,11 +116,13 @@ class Parser {
     */
 public:
     int64_t pos;
-    Parser() {
+    Parser()
+    {
         pos=0;
 
     }
-    Integer parse_integer(const std::vector<std::byte>& input) {
+    Integer parse_integer(const std::vector<std::byte>& input)
+    {
         /*
         Example I/O (substring starting from "pos"):
             "i0e"       ->  0
@@ -131,25 +139,33 @@ public:
         int64_t start=pos+1; //+1 because we have to skip the 'i'
         int64_t end=0;
         int64_t count_digit_or_minus=0;
-        if(input[pos]!=std::byte('i')) {
+        if(input[pos]!=std::byte('i'))
+        {
             throw std::invalid_argument("#d213b1");
         }
-        for(uint64_t i=start; i<input.size(); ++i) {
+        for(uint64_t i=start; i<input.size(); ++i)
+        {
             /*
             This SHOULD only be i,e,0,1,2,3,4,5,6,7,8,9,-
             */
             std::byte current_character=input[i];
-            if(current_character==std::byte('e')) {
+            if(current_character==std::byte('e'))
+            {
                 end=i;
                 break;
-            } else if(isdigit(std::to_integer<uint8_t>(current_character)) || current_character==std::byte('-')) {
+            }
+            else if(isdigit(std::to_integer<uint8_t>(current_character)) || current_character==std::byte('-'))
+            {
                 count_digit_or_minus++;
                 continue;
-            } else {
+            }
+            else
+            {
                 throw std::invalid_argument("#c2c85a");
             }
         }
-        if(count_digit_or_minus==0) {
+        if(count_digit_or_minus==0)
+        {
             throw std::invalid_argument("#286991");
         }
         pos=end+1;  // Consume the e
@@ -157,7 +173,8 @@ public:
         std::from_chars(reinterpret_cast<const char*>(input.data()+start),reinterpret_cast<const char*>(input.data()+end),res.m_data);
         return res;
     }
-    Bytes parse_bytes(const std::vector<std::byte>& input) {
+    Bytes parse_bytes(const std::vector<std::byte>& input)
+    {
         /*
         Example I/O (substring starting from "pos"):
             "0:",           ->  ""
@@ -180,7 +197,8 @@ public:
         */
         int64_t start_integer=pos;
         int64_t end_integer=0;
-        for(uint64_t i=pos; i<input.size(); ++i) {
+        for(uint64_t i=pos; i<input.size(); ++i)
+        {
             /*
             Assumptions (Checks for later malformed input handling):
                 only read 0,1,2,3,4,5,6,7,8,9
@@ -188,7 +206,8 @@ public:
                 There exists a :
             */
             std::byte current_character=input[i];
-            if(current_character==std::byte(':')) {
+            if(current_character==std::byte(':'))
+            {
                 end_integer=i;
                 break;
             }
@@ -198,6 +217,10 @@ public:
         std::from_chars(reinterpret_cast<const char*>(input.data()+start_integer),reinterpret_cast<const char*>(input.data()+end_integer),integer_part);
 
         Bytes res;
+        if(integer_part<0)
+        {
+            throw std::invalid_argument("#6902a2");
+        }
         res.m_data.resize(integer_part);
         //std::vector<std::byte> res(integer_part);
         /*
@@ -207,10 +230,12 @@ public:
         */
         auto start_copy=input.begin()+pos;
         auto end_copy=input.begin()+pos+integer_part;
-        if(end_copy>input.end()) {
+        if(end_copy>input.end())
+        {
             throw std::invalid_argument("#405932");
         }
-        if(pos<0) {
+        if(pos<0)
+        {
             throw std::invalid_argument("#4de083");
         }
         std::copy(start_copy,end_copy,res.m_data.begin());
@@ -218,104 +243,147 @@ public:
 
         return res;
     }
-    List parse_list(const std::vector<std::byte>& input) {
-        if(input[pos]!=std::byte('l')) {
+    List parse_list(const std::vector<std::byte>& input)
+    {
+        if(input[pos]!=std::byte('l'))
+        {
             throw std::invalid_argument("#8b1606");
         }
         pos++;
         List res;
-        std::byte current_character=input[pos];
-        if(current_character==std::byte('i')) {
-            Integer* new_element=new Integer;
-            *new_element=parse_integer(input);
-            res.m_data.push_back(new_element);
-        } else if(isdigit(std::to_integer<uint8_t>(current_character)) || current_character==std::byte('-')) {
-            Bytes* new_element=new Bytes;
-            *new_element=parse_bytes(input);
-            res.m_data.push_back(new_element);
-        }
-        else if(current_character==std::byte('l')) {
-            List* new_element=new List;
-            *new_element=parse_list(input);
-            res.m_data.push_back(new_element);
-        } else if(current_character==std::byte('l')) {
-            Dict* new_element=new Dict;
-            *new_element=parse_dict(input);
-            res.m_data.push_back(new_element);
-        } else {
-            throw std::invalid_argument("#51e02a");
+        while(input[pos]!=std::byte('e'))
+        {
+            std::byte current_character=input[pos];
+            if(current_character==std::byte('i'))
+            {
+                Integer* new_element=new Integer;
+                *new_element=parse_integer(input);
+                res.m_data.push_back(new_element);
+            }
+            else if(isdigit(std::to_integer<uint8_t>(current_character)))
+            {
+                Bytes* new_element=new Bytes;
+                *new_element=parse_bytes(input);
+                res.m_data.push_back(new_element);
+            }
+            else if(current_character==std::byte('l'))
+            {
+                List* new_element=new List;
+                *new_element=parse_list(input);
+                res.m_data.push_back(new_element);
+            }
+            else if(current_character==std::byte('l'))
+            {
+                Dict* new_element=new Dict;
+                *new_element=parse_dict(input);
+                res.m_data.push_back(new_element);
+            }
+            else
+            {
+                throw std::invalid_argument("#51e02a");
+            }
         }
 
-
-        if(input[pos]!=std::byte('e')) {
+        if(input[pos]!=std::byte('e'))
+        {
             throw std::invalid_argument("#b14a04");
         }
+        pos++;
         return res;
     }
-    Dict parse_dict(const std::vector<std::byte>& input) {
-        if(input[pos]!=std::byte('d')) {
+    Dict parse_dict(const std::vector<std::byte>& input)
+    {
+        if(input[pos]!=std::byte('d'))
+        {
             throw std::invalid_argument("#6f44f7");
         }
         pos++;
         Dict res;
         std::byte current_character=input[pos];
 
-        Bytes key=parse_bytes(input);
+        while(input[pos]!=std::byte('e'))
+        {
+            Bytes key=parse_bytes(input);
 
-        if(current_character==std::byte('i')) {
-            Integer* new_element=new Integer;
-            *new_element=parse_integer(input);
-            res.m_data.insert({key.m_data,new_element});
-        } else if(isdigit(std::to_integer<uint8_t>(current_character)) || current_character==std::byte('-')) {
-            Bytes* new_element=new Bytes;
-            *new_element=parse_bytes(input);
-            res.m_data.insert({key.m_data,new_element});
+            if(current_character==std::byte('i'))
+            {
+                Integer* new_element=new Integer;
+                *new_element=parse_integer(input);
+                res.m_data.insert({key.m_data,new_element});
+            }
+            else if(isdigit(std::to_integer<uint8_t>(current_character)) || current_character==std::byte('-'))
+            {
+                Bytes* new_element=new Bytes;
+                *new_element=parse_bytes(input);
+                res.m_data.insert({key.m_data,new_element});
+            }
+            else if(current_character==std::byte('l'))
+            {
+                List* new_element=new List;
+                *new_element=parse_list(input);
+                res.m_data.insert({key.m_data,new_element});
+            }
+            else if(current_character==std::byte('l'))
+            {
+                Dict* new_element=new Dict;
+                *new_element=parse_dict(input);
+                res.m_data.insert({key.m_data,new_element});
+            }
+            else
+            {
+                throw std::invalid_argument("#51e02a");
+            }
+            pos++;
         }
-        else if(current_character==std::byte('l')) {
-            List* new_element=new List;
-            *new_element=parse_list(input);
-            res.m_data.insert({key.m_data,new_element});
-        } else if(current_character==std::byte('l')) {
-            Dict* new_element=new Dict;
-            *new_element=parse_dict(input);
-            res.m_data.insert({key.m_data,new_element});
-        } else {
-            throw std::invalid_argument("#51e02a");
-        }
-        if(input[pos]!=std::byte('e')) {
+        if(input[pos]!=std::byte('e'))
+        {
             throw std::invalid_argument("#fe2d56");
         }
+        pos++;
 
         return res;
     }
 };
 
-std::vector<std::vector<std::byte>> convert_strings_to_bytes(const std::vector<std::string>& inputs_strings) {
+std::vector<std::byte> convert_string_to_bytes(const std::string& inputs_string)
+{
+    std::vector<std::byte> inputs;
+    inputs.resize(inputs_string.size());
+    for(uint64_t i_char=0; i_char<inputs_string.size(); ++i_char)
+    {
+        inputs[i_char]=static_cast<std::byte>(inputs_string[i_char]);
+    }
+    return inputs;
+}
+std::vector<std::vector<std::byte>> convert_strings_to_bytes(const std::vector<std::string>& inputs_strings)
+{
     std::vector<std::vector<std::byte>> inputs(inputs_strings.size());
-    for(uint64_t i_str=0; i_str<inputs_strings.size(); ++i_str) {
+    for(uint64_t i_str=0; i_str<inputs_strings.size(); ++i_str)
+    {
         const std::string& str=inputs_strings[i_str];
-        inputs[i_str].resize(str.size());
-        for(uint64_t i_char=0; i_char<str.size(); ++i_char) {
-            inputs[i_str][i_char]=static_cast<std::byte>(str[i_char]);
-        }
+        inputs[i_str]=convert_string_to_bytes(str);
     }
     return inputs;
 }
 
-void test_integers() {
-    std::vector<std::string> inputs_strings{
+void test_integers()
+{
+    std::vector<std::string> inputs_strings
+    {
         "i0e",
         "i42e",
         "i-42e"
     };
     std::vector<std::vector<std::byte>> inputs=convert_strings_to_bytes(inputs_strings);
 
-    std::vector<int64_t> expected{
+    std::vector<int64_t> expected
+    {
         0,
         42,
         -42
     };
-    for(uint64_t i=0; i<expected.size(); ++i) {
+    for(uint64_t i=0; i<expected.size(); ++i)
+    {
         Parser P;
         Integer result=P.parse_integer(inputs[i]);
         assert(result.m_data==expected[i]);
@@ -324,14 +392,17 @@ void test_integers() {
         assert(P.pos==expected_pos);
     }
 }
-void test_byte_strings1() {
-    std::vector<std::string> inputs_strings{
+void test_byte_strings1()
+{
+    std::vector<std::string> inputs_strings
+    {
         "0:",
         "7:bencode",
         "1:\x27",
         "10:horseHorse"
     };
-    std::vector<std::string> expected_strings{
+    std::vector<std::string> expected_strings
+    {
         "",
         "bencode",
         "\x27",
@@ -340,7 +411,8 @@ void test_byte_strings1() {
     std::vector<std::vector<std::byte>> inputs=convert_strings_to_bytes(inputs_strings);
     std::vector<std::vector<std::byte>> expected=convert_strings_to_bytes(expected_strings);
 
-    for(uint64_t i=0; i<expected.size(); ++i) {
+    for(uint64_t i=0; i<expected.size(); ++i)
+    {
         Parser P;
         Bytes result=P.parse_bytes(inputs[i]);
         assert(result.m_data.size()==expected[i].size());
@@ -350,18 +422,43 @@ void test_byte_strings1() {
         assert(P.pos==expected_pos);
     }
 }
-void test_byte_strings2() {
+void test_byte_strings2()
+{
     /*
     TODO:
     - Test for inputs with non-printable characters
     - Can probably make this MCT test too
     */
 }
+void test_list()
+{
+    {
+        std::vector<std::byte> input=convert_string_to_bytes("l7:bencodei-20ee");
 
-int main() {
+        List res;
+        Bytes* r1=new Bytes;
+        r1->m_data=convert_string_to_bytes("bencode");
+        res.m_data.push_back(r1);
+        Integer* r2=new Integer;
+        r2->m_data=-20;
+        res.m_data.push_back(r2);
+
+        Parser P;
+        List result=P.parse_list(input);
+        assert(result.m_data.size()==2);
+        std::cout<<result.m_data[0]<<std::endl;
+        std::cout<<result.m_data[1]<<std::endl;
+        //assert(*(result.m_data)[0]->m_data==r1->m_data);
+        //assert(*(result.m_data)[1]->m_data==r2->m_data);
+    }
+}
+
+int main()
+{
     std::cout<<"test"<<std::endl;
     test_integers();
     test_byte_strings1();
+    test_list();
     return 0;
 }
 
