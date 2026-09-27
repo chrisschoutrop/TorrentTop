@@ -446,10 +446,8 @@ void test_list()
         Parser P;
         List result=P.parse_list(input);
         assert(result.m_data.size()==2);
-        std::cout<<result.m_data[0]<<std::endl;
-        std::cout<<result.m_data[1]<<std::endl;
-        //assert(*(result.m_data)[0]->m_data==r1->m_data);
-        //assert(*(result.m_data)[1]->m_data==r2->m_data);
+        assert(static_cast<Bytes*>(result.m_data[0])->m_data==r1->m_data);
+        assert(static_cast<Integer*>(result.m_data[1])->m_data==r2->m_data);
     }
 }
 
