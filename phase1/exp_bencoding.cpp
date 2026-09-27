@@ -5,6 +5,8 @@
 #include <cstdint>
 #include <cassert>
 #include <charconv>
+#include <list>
+#include <map>
 /*
 Testcases from
 https://en.wikipedia.org/wiki/Bencode
@@ -31,7 +33,7 @@ Way forward (what locally seems OK):
     like "i" we call parse_integer().
 
 Handling recursive mess:
-- We can handle inputs that are only bytes or integers with 
+- We can handle inputs that are only bytes or integers with
     std::vector<std::variant<int64_t,std::vector<std::byte>>>
 - Problem happens when we have to store lists/dicts, which can recursively
     contain more lists/dicts.
@@ -43,18 +45,18 @@ Handling recursive mess:
     - std::list<*Potato>
     - std::map<std::vector<std::byte>>,*Potato>
 - I vaguely remember this from a hackerrank problem long ago;
-    Class Potato{
+    class Potato{
     };
-    Class Integer : public Potato{
+    class Integer : public Potato{
         int64_t m_data;
     };
-    Class Bytes : public Potato{
+    class Bytes : public Potato{
         std::vector<std::byte> m_data;
     };
-    Class List : public Potato{
+    class List : public Potato{
         std::list<*Potato> m_data;
     };
-    Class Dict : public Potato{
+    class Dict : public Potato{
         std::map<std::vector<std::byte>>,*Potato> m_data
     };
     Where we could make a std::vector<*Potato> which could contain any of the sub-potatoes.
@@ -75,6 +77,24 @@ struct AstNode {
 - RTTI = run-time type identification
     https://en.wikipedia.org/wiki/Run-time_type_information
 */
+class Potato {
+};
+class Integer : public Potato {
+public:
+    int64_t m_data;
+};
+class Bytes : public Potato {
+public:
+    std::vector<std::byte> m_data;
+};
+class List : public Potato {
+public:
+    std::list<Potato*> m_data;
+};
+class Dict : public Potato {
+public:
+    std::map<std::vector<std::byte>,Potato*> m_data;
+};
 class Parser {
     /*
     TODO:
@@ -94,7 +114,7 @@ public:
         pos=0;
 
     }
-    int64_t parse_integer(const std::vector<std::byte>& input) {
+    Integer parse_integer(const std::vector<std::byte>& input) {
         /*
         Example I/O (substring starting from "pos"):
             "i0e"       ->  0
@@ -135,9 +155,11 @@ public:
         pos=end+1;  // Consume the e
         int64_t res;
         std::from_chars(reinterpret_cast<const char*>(input.data()+start),reinterpret_cast<const char*>(input.data()+end),res);
-        return res;
+        Integer res2;
+        res2.m_data=res;
+        return res2;
     }
-    std::vector<std::byte> parse_byte(const std::vector<std::byte>& input) {
+    Bytes parse_bytes(const std::vector<std::byte>& input) {
         /*
         Example I/O (substring starting from "pos"):
             "0:",           ->  ""
@@ -194,8 +216,15 @@ public:
         std::copy(start_copy,end_copy,res.begin());
         pos=pos+integer_part;
 
+        Bytes res2;
+        res2.m_data=res;
+        return res2;
+    }
+    List parse_list(const std::vector<std::byte>& input) {
 
-        return res;
+    }
+    Dict parse_dict(const std::vector<std::byte>& input) {
+
     }
 };
 
@@ -226,8 +255,8 @@ void test_integers() {
     };
     for(uint64_t i=0; i<expected.size(); ++i) {
         Parser P;
-        int64_t result=P.parse_integer(inputs[i]);
-        assert(result==expected[i]);
+        Integer result=P.parse_integer(inputs[i]);
+        assert(result.m_data==expected[i]);
 
         int64_t expected_pos=inputs_strings[i].size();
         assert(P.pos==expected_pos);
@@ -251,9 +280,9 @@ void test_byte_strings1() {
 
     for(uint64_t i=0; i<expected.size(); ++i) {
         Parser P;
-        std::vector<std::byte> result=P.parse_byte(inputs[i]);
-        assert(result.size()==expected[i].size());
-        assert(result==expected[i]);
+        Bytes result=P.parse_bytes(inputs[i]);
+        assert(result.m_data.size()==expected[i].size());
+        assert(result.m_data==expected[i]);
 
         int64_t expected_pos=inputs_strings[i].size();
         assert(P.pos==expected_pos);
