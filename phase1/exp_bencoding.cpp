@@ -123,7 +123,7 @@ class Dict :
 	public Potato
 {
 	public:
-		std::map<std::vector<std::byte>,std::unique_ptr<Potato>> m_data;
+		std::map<std::vector<std::byte>, std::unique_ptr<Potato >> m_data;
 };
 class Parser
 {
@@ -140,7 +140,7 @@ class Parser
 		- Test if m_pos is OK
 		*/
 	public:
-		int64_t m_pos=0;
+		int64_t m_pos = 0;
 
 		// std::span/view such that the Parser does not
 		// copy everything, and we can view in chunks
@@ -173,11 +173,11 @@ class Parser
 			*/
 			return {};
 		}
-		std::byte peek(const int64_t offset=0)
+		std::byte peek(const int64_t offset = 0)
 		{
-			int64_t location=offset+m_pos;
+			int64_t location = offset + m_pos;
 
-			if(location<0 || (size_t)location>=m_input.size())
+			if(location < 0 || (size_t)location >= m_input.size())
 			{
 				throw std::invalid_argument("#04c706");
 			}
@@ -206,29 +206,29 @@ class Parser
 			"i-e"
 			"i042e" (leading zero)  should parse fine as 42, but bencode says invalid
 			*/
-			int64_t start=m_pos+1; //+1 because we have to skip the 'i'
-			int64_t end=start;
-			int64_t count_digit_or_minus=0;
+			int64_t start = m_pos + 1; //+1 because we have to skip the 'i'
+			int64_t end = start;
+			int64_t count_digit_or_minus = 0;
 
-			if(peek()!=std::byte('i'))
+			if(peek() != std::byte('i'))
 			{
 				throw std::invalid_argument("#d213b1");
 			}
 
-			for(uint64_t i=start; i<m_input.size(); ++i)
+			for(uint64_t i = start; i < m_input.size(); ++i)
 			{
 				/*
 				This SHOULD only be i,e,0,1,2,3,4,5,6,7,8,9,-
 				*/
-				std::byte current_character=m_input[i];
+				std::byte current_character = m_input[i];
 
 				// TODO: Do this with std::find and a lambda instead?
-				if(current_character==std::byte('e'))
+				if(current_character == std::byte('e'))
 				{
-					end=i;
+					end = i;
 					break;
 				}
-				else if(locale_proof_isdigit(std::to_integer<uint8_t>(current_character)) || current_character==std::byte('-'))
+				else if(locale_proof_isdigit(std::to_integer<uint8_t>(current_character)) || current_character == std::byte('-'))
 				{
 					count_digit_or_minus++;
 					continue;
@@ -239,18 +239,18 @@ class Parser
 				}
 			}
 
-			if(count_digit_or_minus==0)
+			if(count_digit_or_minus == 0)
 			{
 				throw std::invalid_argument("#286991");
 			}
 
-			m_pos=end+1;  // Consume the e
+			m_pos = end + 1; // Consume the e
 			Integer res;
-			const char* start_ptr=reinterpret_cast<const char*>(m_input.data()+start);
-			const char* end_ptr=reinterpret_cast<const char*>(m_input.data()+end);
-			auto [ptr, ec] =std::from_chars(start_ptr,end_ptr,res.m_data);
+			const char* start_ptr = reinterpret_cast<const char*>(m_input.data() + start);
+			const char* end_ptr = reinterpret_cast<const char*>(m_input.data() + end);
+			auto [ptr, ec] = std::from_chars(start_ptr, end_ptr, res.m_data);
 
-			if(ec!=std::errc() || ptr !=end_ptr)
+			if(ec != std::errc() || ptr != end_ptr)
 			{
 				throw std::runtime_error("#7defba");
 			}
@@ -279,10 +279,10 @@ class Parser
 			    - Combine parse_integer's integer reading part with
 			        what we do here for integer part into a function?
 			*/
-			int64_t start_integer=m_pos;
-			int64_t end_integer=start_integer;
+			int64_t start_integer = m_pos;
+			int64_t end_integer = start_integer;
 
-			for(uint64_t i=m_pos; i<m_input.size(); ++i)
+			for(uint64_t i = m_pos; i < m_input.size(); ++i)
 			{
 				/*
 				Assumptions (Checks for later malformed input handling):
@@ -290,29 +290,29 @@ class Parser
 				    i starts at a digit
 				    There exists a :
 				*/
-				std::byte current_character=m_input[i];
+				std::byte current_character = m_input[i];
 
-				if(current_character==std::byte(':'))
+				if(current_character == std::byte(':'))
 				{
-					end_integer=i;
+					end_integer = i;
 					break;
 				}
 			}
 
-			m_pos=end_integer+1;  // Consume the :
+			m_pos = end_integer + 1; // Consume the :
 			int64_t integer_part;
-			const char* start_ptr=reinterpret_cast<const char*>(m_input.data()+start_integer);
-			const char* end_ptr=reinterpret_cast<const char*>(m_input.data()+end_integer);
-			auto [ptr, ec]=std::from_chars(start_ptr,end_ptr,integer_part);
+			const char* start_ptr = reinterpret_cast<const char*>(m_input.data() + start_integer);
+			const char* end_ptr = reinterpret_cast<const char*>(m_input.data() + end_integer);
+			auto [ptr, ec] = std::from_chars(start_ptr, end_ptr, integer_part);
 
-			if(ec!=std::errc()||ptr!=end_ptr)
+			if(ec != std::errc() || ptr != end_ptr)
 			{
 				throw std::runtime_error("#c9f1aa");
 			}
 
 			Bytes res;
 
-			if(integer_part<0)
+			if(integer_part < 0)
 			{
 				throw std::invalid_argument("#6902a2");
 			}
@@ -323,24 +323,24 @@ class Parser
 			We have to check the sizes.
 			*/
 			//if(end_copy>m_input.end()) // Doesn't work since if end_copy is past the end it's UB
-			if(integer_part>static_cast<int64_t>(m_input.size())-m_pos)
+			if(integer_part > static_cast<int64_t>(m_input.size()) - m_pos)
 			{
 				throw std::invalid_argument("#405932");
 			}
 
 			res.m_data.resize(integer_part);
 
-			auto start_copy=m_input.begin()+m_pos;
-			auto end_copy=m_input.begin()+m_pos+integer_part;
+			auto start_copy = m_input.begin() + m_pos;
+			auto end_copy = m_input.begin() + m_pos + integer_part;
 
-			std::copy(start_copy,end_copy,res.m_data.begin());
-			m_pos=m_pos+integer_part;
+			std::copy(start_copy, end_copy, res.m_data.begin());
+			m_pos = m_pos + integer_part;
 
 			return res;
 		}
 		List parse_list()
 		{
-			if(peek()!=std::byte('l'))
+			if(peek() != std::byte('l'))
 			{
 				throw std::invalid_argument("#8b1606");
 			}
@@ -348,11 +348,11 @@ class Parser
 			m_pos++;
 			List res;
 
-			while(peek()!=std::byte('e'))
+			while(peek() != std::byte('e'))
 			{
-				std::byte current_character=peek();
+				std::byte current_character = peek();
 
-				if(current_character==std::byte('i'))
+				if(current_character == std::byte('i'))
 				{
 					res.m_data.emplace_back(std::make_unique<Integer>(parse_integer()));
 				}
@@ -360,11 +360,11 @@ class Parser
 				{
 					res.m_data.emplace_back(std::make_unique<Bytes>(parse_bytes()));
 				}
-				else if(current_character==std::byte('l'))
+				else if(current_character == std::byte('l'))
 				{
 					res.m_data.emplace_back(std::make_unique<List>(parse_list()));
 				}
-				else if(current_character==std::byte('d'))
+				else if(current_character == std::byte('d'))
 				{
 					res.m_data.emplace_back(std::make_unique<Dict>(parse_dict()));
 				}
@@ -386,7 +386,7 @@ class Parser
 			- Duplicate keys are silently dropped: map::emplace is a no-op for an existing key (the freshly-built
 			    value is created and immediately destroyed). You'll want a reject, not a drop.
 			*/
-			if(peek()!=std::byte('d'))
+			if(peek() != std::byte('d'))
 			{
 				throw std::invalid_argument("#6f44f7");
 			}
@@ -394,26 +394,26 @@ class Parser
 			m_pos++;
 			Dict res;
 
-			while(peek()!=std::byte('e'))
+			while(peek() != std::byte('e'))
 			{
-				Bytes key=parse_bytes();
-				std::byte current_character=peek();
+				Bytes key = parse_bytes();
+				std::byte current_character = peek();
 
-				if(current_character==std::byte('i'))
+				if(current_character == std::byte('i'))
 				{
-					res.m_data.emplace(key.m_data,std::make_unique<Integer>(parse_integer()));
+					res.m_data.emplace(key.m_data, std::make_unique<Integer>(parse_integer()));
 				}
 				else if(locale_proof_isdigit(std::to_integer<uint8_t>(current_character)))
 				{
-					res.m_data.emplace(key.m_data,std::make_unique<Bytes>(parse_bytes()));
+					res.m_data.emplace(key.m_data, std::make_unique<Bytes>(parse_bytes()));
 				}
-				else if(current_character==std::byte('l'))
+				else if(current_character == std::byte('l'))
 				{
-					res.m_data.emplace(key.m_data,std::make_unique<List>(parse_list()));
+					res.m_data.emplace(key.m_data, std::make_unique<List>(parse_list()));
 				}
-				else if(current_character==std::byte('d'))
+				else if(current_character == std::byte('d'))
 				{
-					res.m_data.emplace(key.m_data,std::make_unique<Dict>(parse_dict()));
+					res.m_data.emplace(key.m_data, std::make_unique<Dict>(parse_dict()));
 				}
 				else
 				{
@@ -432,9 +432,9 @@ std::vector<std::byte> convert_string_to_bytes(const std::string& inputs_string)
 	std::vector<std::byte> inputs;
 	inputs.resize(inputs_string.size());
 
-	for(uint64_t i_char=0; i_char<inputs_string.size(); ++i_char)
+	for(uint64_t i_char = 0; i_char < inputs_string.size(); ++i_char)
 	{
-		inputs[i_char]=static_cast<std::byte>(inputs_string[i_char]);
+		inputs[i_char] = static_cast<std::byte>(inputs_string[i_char]);
 	}
 
 	return inputs;
@@ -442,10 +442,10 @@ std::vector<std::byte> convert_string_to_bytes(const std::string& inputs_string)
 std::vector<std::vector<std::byte>> convert_strings_to_bytes(const std::vector<std::string>& inputs_strings)
 {
 	std::vector<std::vector<std::byte>> inputs(inputs_strings.size());
-	for(uint64_t i_str=0; i_str<inputs_strings.size(); ++i_str)
+	for(uint64_t i_str = 0; i_str<inputs_strings.size(); ++i_str)
 	{
-		const std::string& str=inputs_strings[i_str];
-		inputs[i_str]=convert_string_to_bytes(str);
+		const std::string& str = inputs_strings[i_str];
+		inputs[i_str] = convert_string_to_bytes(str);
 	}
 	return inputs;
 }
@@ -458,7 +458,7 @@ void test_integers()
 		"i42e",
 		"i-42e"
 	};
-	std::vector<std::vector<std::byte>> inputs=convert_strings_to_bytes(inputs_strings);
+	std::vector<std::vector<std::byte>> inputs = convert_strings_to_bytes(inputs_strings);
 
 	std::vector<int64_t> expected
 	{
@@ -467,14 +467,14 @@ void test_integers()
 		-42
 	};
 
-	for(uint64_t i=0; i<expected.size(); ++i)
+	for(uint64_t i = 0; i < expected.size(); ++i)
 	{
 		Parser P(inputs[i]);
-		Integer result=P.parse_integer();
-		assert(result.m_data==expected[i]);
+		Integer result = P.parse_integer();
+		assert(result.m_data == expected[i]);
 
-		int64_t expected_pos=inputs_strings[i].size();
-		assert(P.m_pos==expected_pos);
+		int64_t expected_pos = inputs_strings[i].size();
+		assert(P.m_pos == expected_pos);
 	}
 }
 void test_byte_strings1()
@@ -493,18 +493,18 @@ void test_byte_strings1()
 		"\x27",
 		"horseHorse"
 	};
-	std::vector<std::vector<std::byte>> inputs=convert_strings_to_bytes(inputs_strings);
-	std::vector<std::vector<std::byte>> expected=convert_strings_to_bytes(expected_strings);
+	std::vector<std::vector<std::byte>> inputs = convert_strings_to_bytes(inputs_strings);
+	std::vector<std::vector<std::byte>> expected = convert_strings_to_bytes(expected_strings);
 
-	for(uint64_t i=0; i<expected.size(); ++i)
+	for(uint64_t i = 0; i < expected.size(); ++i)
 	{
 		Parser P(inputs[i]);
-		Bytes result=P.parse_bytes();
-		assert(result.m_data.size()==expected[i].size());
-		assert(result.m_data==expected[i]);
+		Bytes result = P.parse_bytes();
+		assert(result.m_data.size() == expected[i].size());
+		assert(result.m_data == expected[i]);
 
-		int64_t expected_pos=inputs_strings[i].size();
-		assert(P.m_pos==expected_pos);
+		int64_t expected_pos = inputs_strings[i].size();
+		assert(P.m_pos == expected_pos);
 	}
 }
 void test_byte_strings2()
@@ -518,19 +518,19 @@ void test_byte_strings2()
 void test_list()
 {
 	{
-		std::string input_string="l7:bencodei-20ee";
-		std::vector<std::byte> input=convert_string_to_bytes(input_string);
+		std::string input_string = "l7:bencodei-20ee";
+		std::vector<std::byte> input = convert_string_to_bytes(input_string);
 
-		std::vector<std::byte> expected_Bytes=convert_string_to_bytes("bencode");
-		int64_t expected_Integer=-20;
+		std::vector<std::byte> expected_Bytes = convert_string_to_bytes("bencode");
+		int64_t expected_Integer = -20;
 
 		Parser P(input);
-		List result=P.parse_list();
-		assert(result.m_data.size()==2);
-		assert(static_cast<Bytes*>(result.m_data[0].get())->m_data==expected_Bytes);
-		assert(static_cast<Integer*>(result.m_data[1].get())->m_data==expected_Integer);
-		int64_t expected_pos=input_string.size();
-		assert(P.m_pos==expected_pos);
+		List result = P.parse_list();
+		assert(result.m_data.size() == 2);
+		assert(static_cast<Bytes*>(result.m_data[0].get())->m_data == expected_Bytes);
+		assert(static_cast<Integer*>(result.m_data[1].get())->m_data == expected_Integer);
+		int64_t expected_pos = input_string.size();
+		assert(P.m_pos == expected_pos);
 	}
 }
 
@@ -543,7 +543,7 @@ void test_dict()
 
 int main()
 {
-	std::cout<<"test"<<std::endl;
+	std::cout << "test" << std::endl;
 	test_integers();
 	test_byte_strings1();
 	test_list();
