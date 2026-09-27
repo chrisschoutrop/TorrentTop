@@ -69,12 +69,12 @@ Handling recursive mess:
 - I think this concept could work
 
 Loot from poking someone about the problem:
-Meestal zet je er ook nog iets in om te kunnen weten van een AST node wat voor type het is
-Ten minste als je geen native rtti gebruikt
+Often one includes something to know what the type of an AST node is:
+At least if you don't use native rtti
 struct AstNode {
     enum Type { ... } type;
     ...
-- RTTI = run-time type identification
+- RTTI = run-time type identification, then we don't have to rely on static_cast
     https://en.wikipedia.org/wiki/Run-time_type_information
 */
 class Potato
