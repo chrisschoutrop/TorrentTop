@@ -10,9 +10,10 @@
 /*
 Notes from Dave 27-Sep-2026:
 [X] Why isn't input just a field in the parser?
-[?] Use std::span instead of const std::vector&. -> I don't know what this would bring to the table
+[X] Use std::span instead of const std::vector&.
 [X] Add a peek(offset = 0) method instead of input.at(pos).
-[?] You can just use std::find to locate the next 'e'. -> I don't know what this would bring to the table
+[ ] You can just use std::find to locate the next 'e'. -> I think the loops do more
+    than just finding, can maybe do with lambda
 [X] Why not use a switch to call the correct variant and put that in a top-level parse function?
 [P] Exceptions :( -> Planned: Error handling later in something outside of this to catch all throws from the Parser.
 */
@@ -139,15 +140,16 @@ class Parser
 		- Test if m_pos is OK
 		*/
 	public:
-		int64_t m_pos;
+		int64_t m_pos=0;
 
 		// std::span/view such that the Parser does not
 		// copy everything, and we can view in chunks
 		// ownership is with whatever passed in the input
+		// span also decouples this from "vector", we can take in anything
+		// as long as it's a bunch of contiguous std::bytes
 		std::span<const std::byte> m_input;
 		Parser(std::span<const std::byte> input): m_input(input)
 		{
-			m_pos=0;
 		}
 		Potato parse()
 		{
