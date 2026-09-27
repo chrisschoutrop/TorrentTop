@@ -9,11 +9,11 @@
 /*
 Notes from Dave 27-Sep-2026:
 [X] Why isn't input just a field in the parser?
-[ ] Use std::span instead of const std::vector&.
-[ ] Add a peek(offset = 0) method instead of input.at(pos).
-[ ] You can just use std::find to locate the next 'e'.
-[ ] Why not use a switch to call the correct variant and put that in a top-level parse function?
-[ ] Exceptions :(
+[?] Use std::span instead of const std::vector&. -> I don't know what this would bring to the table
+[X] Add a peek(offset = 0) method instead of input.at(pos).
+[?] You can just use std::find to locate the next 'e'. -> I don't know what this would bring to the table
+[X] Why not use a switch to call the correct variant and put that in a top-level parse function?
+[P] Exceptions :( -> Planned: Error handling later in something outside of this to catch all throws from the Parser.
 */
 /*
 Testcases from
@@ -139,10 +139,29 @@ class Parser
 		*/
 	public:
 		int64_t m_pos;
+
 		const std::vector<std::byte> m_input;
 		Parser(const std::vector<std::byte>& input): m_input(input)
 		{
 			m_pos=0;
+		}
+		Potato parse()
+		{
+			// TODO, switch to call correct function for parsing entire bencoded input
+			return {};
+		}
+		std::byte peek(const int64_t offset=0)
+		{
+			int64_t location=offset+m_pos;
+
+			if(location<0 || location>=m_input.size())
+			{
+				// TODO: This may not be entirely OK because of the i64<>u64
+				// so for now there is also the .at(location) below
+				throw std::invalid_argument("#04c706");
+			}
+
+			return m_input.at(location);
 		}
 		Integer parse_integer()
 		{
@@ -170,7 +189,7 @@ class Parser
 			int64_t end=start;
 			int64_t count_digit_or_minus=0;
 
-			if(m_input.at(m_pos)!=std::byte('i'))
+			if(peek()!=std::byte('i'))
 			{
 				throw std::invalid_argument("#d213b1");
 			}
@@ -182,6 +201,7 @@ class Parser
 				*/
 				std::byte current_character=m_input[i];
 
+				// TODO: Do this with std::find and a lambda instead?
 				if(current_character==std::byte('e'))
 				{
 					end=i;
@@ -299,7 +319,7 @@ class Parser
 		}
 		List parse_list()
 		{
-			if(m_input.at(m_pos)!=std::byte('l'))
+			if(peek()!=std::byte('l'))
 			{
 				throw std::invalid_argument("#8b1606");
 			}
@@ -307,9 +327,9 @@ class Parser
 			m_pos++;
 			List res;
 
-			while(m_input.at(m_pos)!=std::byte('e'))
+			while(peek()!=std::byte('e'))
 			{
-				std::byte current_character=m_input.at(m_pos);
+				std::byte current_character=peek();
 
 				if(current_character==std::byte('i'))
 				{
@@ -345,7 +365,7 @@ class Parser
 			- Duplicate keys are silently dropped: map::emplace is a no-op for an existing key (the freshly-built
 			    value is created and immediately destroyed). You'll want a reject, not a drop.
 			*/
-			if(m_input.at(m_pos)!=std::byte('d'))
+			if(peek()!=std::byte('d'))
 			{
 				throw std::invalid_argument("#6f44f7");
 			}
@@ -353,10 +373,10 @@ class Parser
 			m_pos++;
 			Dict res;
 
-			while(m_input.at(m_pos)!=std::byte('e'))
+			while(peek()!=std::byte('e'))
 			{
 				Bytes key=parse_bytes();
-				std::byte current_character=m_input.at(m_pos);
+				std::byte current_character=peek();
 
 				if(current_character==std::byte('i'))
 				{
