@@ -171,8 +171,11 @@ public:
         }
         pos=end+1;  // Consume the e
         Integer res;
-        std::from_chars_result ec=std::from_chars(reinterpret_cast<const char*>(input.data()+start),reinterpret_cast<const char*>(input.data()+end),res.m_data);
-        if(ec!=0){
+        const char* start_ptr=reinterpret_cast<const char*>(input.data()+start);
+        const char* end_ptr=reinterpret_cast<const char*>(input.data()+end);
+        auto [ptr, ec] =std::from_chars(start_ptr,end_ptr,res.m_data);
+        if(ec!=std::errc() || ptr !=end_ptr)
+        {
             throw std::runtime_error("#7defba");
         }
         return res;
@@ -218,8 +221,11 @@ public:
         }
         pos=end_integer+1;  // Consume the :
         int64_t integer_part;
-        std::from_chars_result ec=std::from_chars(reinterpret_cast<const char*>(input.data()+start_integer),reinterpret_cast<const char*>(input.data()+end_integer),integer_part);
-        if(ec!=0){
+        const char* start_ptr=reinterpret_cast<const char*>(input.data()+start_integer);
+        const char* end_ptr=reinterpret_cast<const char*>(input.data()+end_integer);
+        auto [ptr, ec]=std::from_chars(start_ptr,end_ptr,integer_part);
+        if(ec!=std::errc()||ptr!=end_ptr)
+        {
             throw std::runtime_error("#c9f1aa");
         }
 
@@ -306,7 +312,7 @@ public:
         }
         pos++;
         Dict res;
-        
+
         while(input.at(pos)!=std::byte('e'))
         {
             std::byte current_character=input.at(pos);
