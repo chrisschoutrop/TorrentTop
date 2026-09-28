@@ -564,19 +564,63 @@ void test_parse(){
 }
 
 void test_integer_invalid(){
-
+/*
+	i42			missing terminator e
+	ie			no digits
+	i+42e		plus sign not allowed
+	i1.5e		not an integer
+	i--1e		double minus
+	i12-34e		minus in the middle
+	i42x		wrong terminator
+	i4 2e		whitespace inside
+	i42Ee		uppercase E
+	il42e		non-digit after i
+*/
 }
 void test_bytes_invalid(){
+/*
+	4:spa		data shorter than declared length
+	a:spam		non-numeric length
+	-1:abc		negative length
+	:spam		empty length
+	4:			length declared, no data
+	1.5:abc		decimal length
+	999:abc		length exceeds available data
 
-}
-void test_list_invalid(){
-
-}
-void test_dict_invalid(){
-
+*/
 }
 void test_parse_invalid(){
+/*
+	(empty string)	no value at all
+	l				list with no terminator
+	d				dict with no terminator
+	li1e			list missing closing e
+	l4:spam			list missing closing e
+	l4:spami1e		outer list unterminated
+	e				stray terminator used as a value
+	d3:bar			key with no value, unterminated
+	d3:bar3:spam	dict missing closing e
 
+	i42ee			extra e after complete integer
+	i42e42			junk after complete integer
+	4:spame			junk after complete byte string
+	lee				extra e after complete list
+	1:ab			length says 1, extra b left over
+	d3:bar3:spamee	extra e after complete dict
+
+	d1:ai0e1:ai1e	duplicate key a
+	di1e1:ae		non-byte-string key (integer)
+	dl4:spame1:ae	non-byte-string key (list)
+	
+	i42e			leading whitespace
+	x42e			unknown type marker
+	
+Questionable:
+	d4:spam3:bar4:lang2:ene		keys not sorted (spam before bar)
+	i007e						leading zero in integer
+	i-0e						negative zero
+	00:abc						leading zero in byte length
+*/
 }
 
 int main()
