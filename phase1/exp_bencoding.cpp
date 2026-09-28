@@ -477,21 +477,27 @@ void test_integers()
 		assert(P.m_pos == expected_pos);
 	}
 }
-void test_byte_strings1()
+void test_bytes()
 {
+	/*
+	TODO:
+	\0 
+	*/
 	std::vector<std::string> inputs_strings
 	{
 		"0:",
 		"7:bencode",
 		"1:\x27",
-		"10:horseHorse"
+		"10:horseHorse",
+		"13:hello world!!"
 	};
 	std::vector<std::string> expected_strings
 	{
 		"",
 		"bencode",
 		"\x27",
-		"horseHorse"
+		"horseHorse",
+		"hello world!!"
 	};
 	std::vector<std::vector<std::byte>> inputs = convert_strings_to_bytes(inputs_strings);
 	std::vector<std::vector<std::byte>> expected = convert_strings_to_bytes(expected_strings);
@@ -507,16 +513,15 @@ void test_byte_strings1()
 		assert(P.m_pos == expected_pos);
 	}
 }
-void test_byte_strings2()
-{
-	/*
-	TODO:
-	- Test for inputs with non-printable characters
-	- Can probably make this MCT test too
-	*/
-}
 void test_list()
 {
+	/*
+	Test inputs:
+	le				[]
+	li1ei2ee		[1, 2]
+	l4:spami42ee	["spam", 42]
+	lli1ei2eei3ee	[[1, 2], 3] (nested)
+	*/
 	{
 		std::string input_string = "l7:bencodei-20ee";
 		std::vector<std::byte> input = convert_string_to_bytes(input_string);
@@ -538,14 +543,47 @@ void test_dict()
 {
 	/*
 	TODO
+
+	Ideas for inputs:
+		de	{}
+		d3:bar4:spam4:lang2:ene		{"bar": "spam", "lang": "en"}
+		d3:cow3:moo4:spam3:bare		{"cow": "moo", "spam": "bar"}
+		d3:fooi-1e4:spamli1ei2eee	{"foo": -1, "spam": [1, 2]}		
 	*/
+}
+
+void test_parse(){
+	/*
+	TODO
+
+	Ideas for inputs:
+		d1:ad3:barli1ei2ee3:bazd2:xxi0eeee		{"a": {"bar": [1, 2], "baz": {"xx": 0}}}
+		d4:colsl4:spam4:eggs5:applee3:numi42ee	{"cols": ["spam", "eggs", "apple"], "num": 42}
+		d7:content6:banana4:name6:bananee		{"content": "banana", "name": "banane"}
+	*/
+}
+
+void test_integer_invalid(){
+
+}
+void test_bytes_invalid(){
+
+}
+void test_list_invalid(){
+
+}
+void test_dict_invalid(){
+
+}
+void test_parse_invalid(){
+
 }
 
 int main()
 {
 	std::cout << "test" << std::endl;
 	test_integers();
-	test_byte_strings1();
+	test_bytes();
 	test_list();
 	test_dict();
 	return 0;
