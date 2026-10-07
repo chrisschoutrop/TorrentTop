@@ -128,7 +128,7 @@ bool locale_proof_isdigit(const uint8_t ch)
 //  public:
 //      std::map<std::vector<std::byte>, std::unique_ptr<Potato >> m_data;
 // };
-// Modern idea using std::variant, to be investigated
+// Modern idea using std::variant
 // We can then access with std::holds_alternative, std::get, std::get_if
 struct BencodeValue;
 using Integer = int64_t;
@@ -227,101 +227,10 @@ void print_node(const BencodeValue& node)
 	}, node.data);
 }
 
-/*
-Modern idea using std::variant, to be investigated
-We can then access with std::holds_alternative, std::get, std::get_if
-struct BencodeValue;
-using Integer = int64_t;
-using Bytes   = std::vector<std::byte>;
-using List    = std::vector<BencodeValue>;
-using Dict    = std::map<Bytes, BencodeValue>;
-struct BencodeValue {
-    using VariantType = std::variant<
-        Integer,
-        Bytes,
-        List,
-        Dict
-    >;
-
-    VariantType data;
-
-    BencodeValue() = default;
-    BencodeValue(VariantType v) : data(std::move(v)) {}
-};
-
-// Helper struct for inline pattern matching
-// https://www.cppstories.com/2019/02/2lines3featuresoverload.html/
-template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
-template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>;
-
-void print_node(const BencodeValue& node) {
-    std::visit(overloaded {
-        [](int64_t val) {
-            std::cout << "Integer: " << val << "\n";
-        },
-        [](const Bytes& bytes) {
-            std::cout << "Bytes of size: " << bytes.size() << "\n";
-        },
-        [](const List& list) {
-            std::cout << "List of size: " << list.size() << "\n";
-            for (const auto& elem : list) print_node(elem);
-        },
-        [](const Dict& dict) {
-            std::cout << "Dict with " << dict.size() << " keys\n";
-            for (const auto& [k, v] : dict) print_node(v);
-        }
-    }, node.data);
-}
-
-struct BencodeValue {
-    using VariantType = std::variant<Integer, Bytes, List, Dict>;
-    VariantType data;
-
-    BencodeValue() = default;
-    BencodeValue(VariantType v) : data(std::move(v)) {}
-
-    // Checkers
-    bool is_int()   const { return std::holds_alternative<Integer>(data); }
-    bool is_bytes() const { return std::holds_alternative<Bytes>(data); }
-    bool is_list()  const { return std::holds_alternative<List>(data); }
-    bool is_dict()  const { return std::holds_alternative<Dict>(data); }
-
-    // Safe getters returning std::optional or pointers
-    const Integer* as_int() const { return std::get_if<Integer>(&data); }
-    const Bytes* as_bytes() const { return std::get_if<Bytes>(&data); }
-    const List* as_list()   const { return std::get_if<List>(&data); }
-    const Dict* as_dict()   const { return std::get_if<Dict>(&data); }
-
-    // String helper (convenient for torrent keys and string values)
-    std::optional<std::string> as_string() const {
-        if (auto* b = as_bytes()) {
-            return std::string(reinterpret_cast<const char*>(b->data()), b->size());
-        }
-        return std::nullopt;
-    }
-};
-
-void test_list() {
-    std::string input_string = "l7:bencodei-20ee";
-    std::vector<std::byte> input = convert_string_to_bytes(input_string);
-
-    Parser P(input);
-    BencodeValue result = P.parse_list();
-
-    // Clean, safe access using helper getters or std::get
-    const List& list = std::get<List>(result.data);
-    assert(list.size() == 2);
-
-    assert(list[0].as_string() == "bencode");
-    assert(*list[1].as_int() == -20);
-}
-*/
-
 class Parser
 {
 		/*
 		TODO:
-		- Input should be a vector of bytes, not strings?
 		- Parse basic inputs
 		- Parse complex inputs
 		- Handle malformed inputs
@@ -705,6 +614,7 @@ void test_bytes()
 		assert(P.m_pos == expected_pos);
 	}
 }
+
 void test_list()
 {
 	/*
@@ -714,23 +624,18 @@ void test_list()
 	l4:spami42ee    ["spam", 42]
 	lli1ei2eei3ee   [[1, 2], 3] (nested)
 	*/
-	// {
-	//  std::string input_string = "l7:bencodei-20ee";
-	//  std::vector<std::byte> input = convert_string_to_bytes(input_string);
+	std::string input_string = "l7:bencodei-20ee";
+	std::vector<std::byte> input = convert_string_to_bytes(input_string);
 
-	//  std::vector<std::byte> expected_Bytes = convert_string_to_bytes("bencode");
-	//  int64_t expected_Integer = -20;
+	Parser P(input);
+	List result = P.parse_list();
 
-	//  Parser P(input);
-	//  List result = P.parse_list();
-	//  assert(result.m_data.size() == 2);
-	//  assert(static_cast<Bytes*>(result.m_data[0].get())->m_data == expected_Bytes);
-	//  assert(static_cast<Integer*>(result.m_data[1].get())->m_data == expected_Integer);
-	//  int64_t expected_pos = input_string.size();
-	//  assert(P.m_pos == expected_pos);
-	// }
+	// Clean, safe access using helper getters or std::get
+	//const List& list = std::get<List>(result.data);
+	assert(result.size() == 2);
 
-	//TODO
+	assert(result[0].as_string() == "bencode");
+	assert(*result[1].as_int() == -20);
 }
 
 void test_dict()
