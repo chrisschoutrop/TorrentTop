@@ -286,7 +286,7 @@ class Parser
 
 			return m_input[location];
 		}
-		Integer parse_integer()
+		BencodeValue parse_integer()
 		{
 			/*
 			Example I/O (substring starting from "m_pos"):
@@ -357,9 +357,9 @@ class Parser
 				throw std::runtime_error("#7defba");
 			}
 
-			return res;
+			return BencodeValue(res);
 		}
-		Bytes parse_bytes()
+		BencodeValue parse_bytes()
 		{
 			/*
 			Example I/O (substring starting from "m_pos"):
@@ -438,9 +438,9 @@ class Parser
 			std::copy(start_copy, end_copy, res.begin());
 			m_pos = m_pos + integer_part;
 
-			return res;
+			return BencodeValue(res);
 		}
-		List parse_list()
+		BencodeValue parse_list()
 		{
 			if(peek() != std::byte('l'))
 			{
@@ -477,9 +477,9 @@ class Parser
 			}
 
 			m_pos++;
-			return res;
+			return BencodeValue(res);
 		}
-		Dict parse_dict()
+		BencodeValue parse_dict()
 		{
 			/*
 			TODO:
@@ -498,24 +498,24 @@ class Parser
 
 			while(peek() != std::byte('e'))
 			{
-				Bytes key = parse_bytes();
+				Bytes key = *parse_bytes().as_bytes();
 				std::byte current_character = peek();
 
 				if(current_character == std::byte('i'))
 				{
-					res.emplace(key, parse_integer());
+					res.emplace(key, *parse_integer().as_int());
 				}
 				else if(locale_proof_isdigit(std::to_integer<uint8_t>(current_character)))
 				{
-					res.emplace(key, parse_bytes());
+					res.emplace(key, *parse_bytes().as_bytes());
 				}
 				else if(current_character == std::byte('l'))
 				{
-					res.emplace(key, parse_list());
+					res.emplace(key, *parse_list().as_list());
 				}
 				else if(current_character == std::byte('d'))
 				{
-					res.emplace(key, parse_dict());
+					res.emplace(key, *parse_dict().as_dict());
 				}
 				else
 				{
@@ -525,7 +525,7 @@ class Parser
 
 			m_pos++;
 
-			return res;
+			return BencodeValue(res);
 		}
 };
 
@@ -572,8 +572,8 @@ void test_integers()
 	for(uint64_t i = 0; i < expected.size(); ++i)
 	{
 		Parser P(inputs[i]);
-		Integer result = P.parse_integer();
-		assert(result == expected[i]);
+		BencodeValue result = P.parse_integer();
+		assert(*result.as_int() == expected[i]);
 
 		int64_t expected_pos = inputs_strings[i].size();
 		assert(P.m_pos == expected_pos);
@@ -607,9 +607,9 @@ void test_bytes()
 	for(uint64_t i = 0; i < expected.size(); ++i)
 	{
 		Parser P(inputs[i]);
-		Bytes result = P.parse_bytes();
-		assert(result.size() == expected[i].size());
-		assert(result == expected[i]);
+		BencodeValue result = P.parse_bytes();
+		assert((*result.as_bytes()).size() == expected[i].size());
+		assert((*result.as_bytes()) == expected[i]);
 
 		int64_t expected_pos = inputs_strings[i].size();
 		assert(P.m_pos == expected_pos);
@@ -630,48 +630,48 @@ void test_list()
 		std::vector<std::byte> input = convert_string_to_bytes(input_string);
 
 		Parser P(input);
-		List result = P.parse_list();
+		BencodeValue result = P.parse_list();
 
-		assert(result.size() == 2);
+		assert((*result.as_list()).size() == 2);
 
-		assert(result[0].as_string() == "bencode");
-		assert(*result[1].as_int() == -20);
+		assert((*result.as_list())[0].as_string() == "bencode");
+		assert(*(*result.as_list())[1].as_int() == -20);
 	}
 	{
 		std::string input_string = "le";
 		std::vector<std::byte> input = convert_string_to_bytes(input_string);
 
 		Parser P(input);
-		List result = P.parse_list();
+		BencodeValue result = P.parse_list();
 
-		assert(result.size() == 0);
+		assert((*result.as_list()).size() == 0);
 	}
 	{
 		std::string input_string = "li1ei2ee";
 		std::vector<std::byte> input = convert_string_to_bytes(input_string);
 
 		Parser P(input);
-		List result = P.parse_list();
+		BencodeValue result = P.parse_list();
 
-		assert(result.size() == 2);
+		assert((*result.as_list()).size() == 2);
 
-		assert(*result[0].as_int() == 1);
-		assert(*result[1].as_int() == 2);
+		assert(*(*result.as_list())[0].as_int() == 1);
+		assert(*(*result.as_list())[1].as_int() == 2);
 	}
 	{
 		std::string input_string = "lli1ei2eei3ee";
 		std::vector<std::byte> input = convert_string_to_bytes(input_string);
 
 		Parser P(input);
-		List result = P.parse_list();
+		BencodeValue result = P.parse_list();
 
-		assert(result.size() == 2);
-		const List* sublist = result[0].as_list();
+		assert((*result.as_list()).size() == 2);
+		const List* sublist = (*result.as_list())[0].as_list();
 		assert((*sublist).size() == 2);
 		assert(*(*sublist)[0].as_int() == 1);
 		assert(*(*sublist)[1].as_int() == 2);
 
-		assert(*result[1].as_int() == 3);
+		assert(*(*result.as_list())[1].as_int() == 3);
 	}
 }
 
