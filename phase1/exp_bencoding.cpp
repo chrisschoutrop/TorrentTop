@@ -180,16 +180,22 @@ struct BencodeValue
 		return std::get_if<Dict>(&data);
 	}
 
-	// String helper (convenient for torrent keys and string values)
-	std::optional<std::string> as_string() const
+	// TODO: Check if it exists with is_*
+	Integer get_int() const
 	{
-		// TODO: Make this return a std::string* similar to the other values?
-		if (auto * b = as_bytes())
-		{
-			return std::string(reinterpret_cast<const char*>(b->data()), b->size());
-		}
-
-		return std::nullopt;
+		return *std::get_if<Integer>(&data);
+	}
+	Bytes get_bytes() const
+	{
+		return *std::get_if<Bytes>(&data);
+	}
+	List get_list()   const
+	{
+		return *std::get_if<List>(&data);
+	}
+	Dict get_dict()   const
+	{
+		return *std::get_if<Dict>(&data);
 	}
 };
 
@@ -573,7 +579,7 @@ void test_integers()
 	{
 		Parser P(inputs[i]);
 		BencodeValue result = P.parse_integer();
-		assert(*result.as_int() == expected[i]);
+		assert(result.get_int() == expected[i]);
 
 		int64_t expected_pos = inputs_strings[i].size();
 		assert(P.m_pos == expected_pos);
@@ -608,8 +614,8 @@ void test_bytes()
 	{
 		Parser P(inputs[i]);
 		BencodeValue result = P.parse_bytes();
-		assert((*result.as_bytes()).size() == expected[i].size());
-		assert((*result.as_bytes()) == expected[i]);
+		assert(result.get_bytes().size() == expected[i].size());
+		assert(result.get_bytes() == expected[i]);
 
 		int64_t expected_pos = inputs_strings[i].size();
 		assert(P.m_pos == expected_pos);
@@ -632,10 +638,10 @@ void test_list()
 		Parser P(input);
 		BencodeValue result = P.parse_list();
 
-		assert((*result.as_list()).size() == 2);
+		assert(result.get_list().size() == 2);
 
-		assert((*result.as_list())[0].as_string() == "bencode");
-		assert(*(*result.as_list())[1].as_int() == -20);
+		assert(result.get_list()[0].get_bytes() == convert_string_to_bytes("bencode"));
+		assert(result.get_list()[1].get_int() == -20);
 	}
 	{
 		std::string input_string = "le";
@@ -644,7 +650,7 @@ void test_list()
 		Parser P(input);
 		BencodeValue result = P.parse_list();
 
-		assert((*result.as_list()).size() == 0);
+		assert(result.get_list().size() == 0);
 	}
 	{
 		std::string input_string = "li1ei2ee";
@@ -653,10 +659,10 @@ void test_list()
 		Parser P(input);
 		BencodeValue result = P.parse_list();
 
-		assert((*result.as_list()).size() == 2);
+		assert(result.get_list().size() == 2);
 
-		assert(*(*result.as_list())[0].as_int() == 1);
-		assert(*(*result.as_list())[1].as_int() == 2);
+		assert(*result.get_list()[0].as_int() == 1);
+		assert(*result.get_list()[1].as_int() == 2);
 	}
 	{
 		std::string input_string = "lli1ei2eei3ee";
@@ -665,13 +671,12 @@ void test_list()
 		Parser P(input);
 		BencodeValue result = P.parse_list();
 
-		assert((*result.as_list()).size() == 2);
-		const List* sublist = (*result.as_list())[0].as_list();
-		assert((*sublist).size() == 2);
-		assert(*(*sublist)[0].as_int() == 1);
-		assert(*(*sublist)[1].as_int() == 2);
-
-		assert(*(*result.as_list())[1].as_int() == 3);
+		assert(result.get_list().size() == 2);
+		const List sublist = result.get_list()[0].get_list();
+		assert(sublist.size() == 2);
+		assert(sublist[0].get_int() == 1);
+		assert(sublist[1].get_int() == 2);
+		assert(result.get_list()[1].get_int() == 3);
 	}
 }
 
