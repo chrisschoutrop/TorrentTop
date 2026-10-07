@@ -183,6 +183,7 @@ struct BencodeValue
 	// String helper (convenient for torrent keys and string values)
 	std::optional<std::string> as_string() const
 	{
+		// TODO: Make this return a std::string* similar to the other values?
 		if (auto * b = as_bytes())
 		{
 			return std::string(reinterpret_cast<const char*>(b->data()), b->size());
@@ -619,23 +620,59 @@ void test_list()
 {
 	/*
 	Test inputs:
+	li1ei2ee        ["bencode",-20]
 	le              []
 	li1ei2ee        [1, 2]
-	l4:spami42ee    ["spam", 42]
 	lli1ei2eei3ee   [[1, 2], 3] (nested)
 	*/
-	std::string input_string = "l7:bencodei-20ee";
-	std::vector<std::byte> input = convert_string_to_bytes(input_string);
+	{
+		std::string input_string = "l7:bencodei-20ee";
+		std::vector<std::byte> input = convert_string_to_bytes(input_string);
 
-	Parser P(input);
-	List result = P.parse_list();
+		Parser P(input);
+		List result = P.parse_list();
 
-	// Clean, safe access using helper getters or std::get
-	//const List& list = std::get<List>(result.data);
-	assert(result.size() == 2);
+		assert(result.size() == 2);
 
-	assert(result[0].as_string() == "bencode");
-	assert(*result[1].as_int() == -20);
+		assert(result[0].as_string() == "bencode");
+		assert(*result[1].as_int() == -20);
+	}
+	{
+		std::string input_string = "le";
+		std::vector<std::byte> input = convert_string_to_bytes(input_string);
+
+		Parser P(input);
+		List result = P.parse_list();
+
+		assert(result.size() == 0);
+	}
+	{
+		std::string input_string = "li1ei2ee";
+		std::vector<std::byte> input = convert_string_to_bytes(input_string);
+
+		Parser P(input);
+		List result = P.parse_list();
+
+		assert(result.size() == 2);
+
+		assert(*result[0].as_int() == 1);
+		assert(*result[1].as_int() == 2);
+	}
+	{
+		std::string input_string = "lli1ei2eei3ee";
+		std::vector<std::byte> input = convert_string_to_bytes(input_string);
+
+		Parser P(input);
+		List result = P.parse_list();
+
+		assert(result.size() == 2);
+		const List* sublist = result[0].as_list();
+		assert((*sublist).size() == 2);
+		assert(*(*sublist)[0].as_int() == 1);
+		assert(*(*sublist)[1].as_int() == 2);
+
+		assert(*result[1].as_int() == 3);
+	}
 }
 
 void test_dict()
