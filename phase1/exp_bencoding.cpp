@@ -101,33 +101,6 @@ bool locale_proof_isdigit(const uint8_t ch)
 	return (ch >= '0' && ch <= '9');
 }
 
-// Old version using inheritance
-// class Potato
-// {
-//  public:
-//      virtual ~Potato() = default;
-// };
-// class Integer : public Potato
-// {
-//  public:
-//      int64_t m_data;
-// };
-// class Bytes : public Potato
-// {
-//  public:
-//      std::vector<std::byte> m_data;
-// };
-// class List : public Potato
-// {
-//  public:
-//      std::vector<std::unique_ptr<Potato>> m_data;
-// };
-// class Dict :
-//  public Potato
-// {
-//  public:
-//      std::map<std::vector<std::byte>, std::unique_ptr<Potato >> m_data;
-// };
 // Modern idea using std::variant
 // We can then access with std::holds_alternative, std::get, std::get_if
 struct BencodeValue;
@@ -162,7 +135,7 @@ struct BencodeValue
 		return std::holds_alternative<Dict>(data);
 	}
 
-	// Safe getters returning std::optional or pointers
+	// Getters returning std::optional or pointers
 	const Integer* as_int() const
 	{
 		return std::get_if<Integer>(&data);
@@ -180,7 +153,8 @@ struct BencodeValue
 		return std::get_if<Dict>(&data);
 	}
 
-	// TODO: Check if it exists with is_*
+	// TODO: Check if it exists with is_* ?
+	// Currently there can be a nullptr dereference
 	Integer get_int() const
 	{
 		return *std::get_if<Integer>(&data);
@@ -238,14 +212,11 @@ class Parser
 {
 		/*
 		TODO:
-		- Parse basic inputs
-		- Parse complex inputs
 		- Handle malformed inputs
 		    - What happens if the input string contains an 'i' but never reaches an 'e'?
 		    - Overly long integers?
 		    - Mismatch in length & actual length in bytes
 		- Clean this up once it works correctly
-		- Test if m_pos is OK
 		*/
 	public:
 		int64_t m_pos = 0;
@@ -279,6 +250,29 @@ class Parser
 			    but it's a silent "unimplemented"; throw std::logic_error("not implemented");
 			    fails loudly instead — and add <stdexcept> if it doesn't come in transitively.
 			*/
+			std::byte current_character = peek();
+
+			if(current_character == std::byte('i'))
+			{
+				return parse_integer();
+			}
+			else if(locale_proof_isdigit(std::to_integer<uint8_t>(current_character)))
+			{
+				return parse_bytes();
+			}
+			else if(current_character == std::byte('l'))
+			{
+				return parse_list();
+			}
+			else if(current_character == std::byte('d'))
+			{
+				return parse_dict();
+			}
+			else
+			{
+				throw std::invalid_argument("#34bc24");
+			}
+
 			return {};
 		}
 		std::byte peek(const int64_t offset = 0)
@@ -684,13 +678,60 @@ void test_dict()
 {
 	/*
 	TODO
+	- dict in dict testcase?
+	- every time we do get_dict() this copies a Dict, but as_dict has a lot
+	    of * in using it. Maybe it's nice to have something that returns a const&
+	    instead of const* so we get the best of both.
 
 	Ideas for inputs:
 	    de  {}
 	    d3:bar4:spam4:lang2:ene     {"bar": "spam", "lang": "en"}
-	    d3:cow3:moo4:spam3:bare     {"cow": "moo", "spam": "bar"}
 	    d3:fooi-1e4:spamli1ei2eee   {"foo": -1, "spam": [1, 2]}
 	*/
+	{
+		std::string input_string = "de";
+		std::vector<std::byte> input = convert_string_to_bytes(input_string);
+
+		Parser P(input);
+		BencodeValue result = P.parse_dict();
+		assert(result.get_dict().size() == 0);
+	}
+	{
+		std::string input_string = "d3:bar4:spam4:lang2:ene";
+		std::vector<std::byte> input = convert_string_to_bytes(input_string);
+
+		Parser P(input);
+		BencodeValue result = P.parse_dict();
+
+		assert(result.get_dict().size() == 2);
+		Bytes expected_key;
+		Bytes expected_val;
+		expected_key = convert_string_to_bytes("bar");
+		expected_val = convert_string_to_bytes("spam");
+		assert(result.get_dict().contains(expected_key));
+		assert(result.get_dict()[expected_key].get_bytes() == expected_val);
+		expected_key = convert_string_to_bytes("lang");
+		expected_val = convert_string_to_bytes("en");
+		assert(result.get_dict().contains(expected_key));
+		assert(result.get_dict()[expected_key].get_bytes() == expected_val);
+	}
+	{
+		std::string input_string = "d3:fooi-1e4:spamli1ei2eee";
+		std::vector<std::byte> input = convert_string_to_bytes(input_string);
+
+		Parser P(input);
+		BencodeValue result = P.parse_dict();
+		assert(result.get_dict().size() == 2);
+		Bytes expected_key1, expected_key2;
+		expected_key1 = convert_string_to_bytes("foo");
+		expected_key2 = convert_string_to_bytes("spam");
+		assert(result.get_dict().contains(expected_key1));
+		assert(result.get_dict().contains(expected_key2));
+		assert(result.get_dict()[expected_key1].get_int() == -1);
+		assert(result.get_dict()[expected_key2].as_list() != nullptr);
+		assert(result.get_dict()[expected_key2].get_list()[0].get_int() == 1);
+		assert(result.get_dict()[expected_key2].get_list()[1].get_int() == 2);
+	}
 }
 
 void test_parse()
@@ -699,9 +740,33 @@ void test_parse()
 	TODO
 
 	Ideas for inputs:
-	    d1:ad3:barli1ei2ee3:bazd2:xxi0eeee      {"a": {"bar": [1, 2], "baz": {"xx": 0}}}
-	    d4:colsl4:spam4:eggs5:applee3:numi42ee  {"cols": ["spam", "eggs", "apple"], "num": 42}
-	    d7:content6:banana4:name6:bananee       {"content": "banana", "name": "banane"}
+	    d1:ad3:barli1ei2ee3:bazd2:xxi0eeee      {"a": {"bar": [1, 2], "baz": {"xx": 277}}}
+	*/
+	{
+		std::string input_string = "d1:ad3:barli1ei2ee3:bazd2:xxi277eeee ";
+		std::vector<std::byte> input = convert_string_to_bytes(input_string);
+
+		Parser P(input);
+		BencodeValue result = P.parse();
+		assert(result.get_dict().size() == 1);
+		assert(result.get_dict().contains(convert_string_to_bytes("a")));
+		assert(result.get_dict()[convert_string_to_bytes("a")].get_dict().contains(convert_string_to_bytes("bar")));
+		assert(result.get_dict()[convert_string_to_bytes("a")].get_dict().contains(convert_string_to_bytes("baz")));
+		assert(result.get_dict()[convert_string_to_bytes("a")].get_dict()[convert_string_to_bytes("bar")].as_list() != nullptr);
+		assert(result.get_dict()[convert_string_to_bytes("a")].get_dict()[convert_string_to_bytes("bar")].get_list()[0].get_int() == 1);
+		assert(result.get_dict()[convert_string_to_bytes("a")].get_dict()[convert_string_to_bytes("bar")].get_list()[1].get_int() == 2);
+		assert(result.get_dict()[convert_string_to_bytes("a")].get_dict()[convert_string_to_bytes("baz")].as_dict() != nullptr);
+		assert(result.get_dict()[convert_string_to_bytes("a")].get_dict()[convert_string_to_bytes("baz")].get_dict().contains(convert_string_to_bytes("xx")));
+		assert(result.get_dict()[convert_string_to_bytes("a")].get_dict()[convert_string_to_bytes("baz")].get_dict()[convert_string_to_bytes("xx")].get_int() == 277);
+	}
+}
+
+void test_parse_MCT()
+{
+	/*
+	Idea:
+	If we have an encoder too we can encode random data
+	and see if we break anything.
 	*/
 }
 
@@ -774,6 +839,7 @@ int main()
 	test_bytes();
 	test_list();
 	test_dict();
+	test_parse();
 	return 0;
 }
 
