@@ -216,7 +216,8 @@ class Parser
 		int64_t m_pos = 0;
 		int64_t m_recursion_depth = 0;
 		static constexpr int64_t m_max_recursion_depth = 128;
-		struct DepthGuard {
+		struct DepthGuard
+		{
 			/*
 			This saves the reference to the m_recursion_depth
 			Every time we go deeper in parse_value() it gets incremented
@@ -224,13 +225,18 @@ class Parser
 			We have to use reference, since m_recursion_depth cannot be accessed
 			*/
 			int64_t& depth;
-			DepthGuard(int64_t& d) : depth(d) {
-				if (++depth > m_max_recursion_depth) {
+			DepthGuard(int64_t& d) : depth(d)
+			{
+				if (++depth > m_max_recursion_depth)
+				{
 					throw std::runtime_error("#9d10dd: max recursion depth reached in parse_value()");
 				}
 			}
-			~DepthGuard() { --depth; }
-		};		
+			~DepthGuard()
+			{
+				--depth;
+			}
+		};
 
 		// std::span/view such that the Parser does not
 		// copy everything, and we can view in chunks
@@ -243,7 +249,7 @@ class Parser
 		}
 		BencodeValue parse()
 		{
-			m_recursion_depth=0;
+			m_recursion_depth = 0;
 			BencodeValue result = parse_value();
 
 			if((size_t)m_pos != m_input.size())
@@ -255,7 +261,7 @@ class Parser
 		}
 		BencodeValue parse_value()
 		{
-			DepthGuard guard(m_recursion_depth);			
+			DepthGuard guard(m_recursion_depth);
 
 			m_recursion_depth++;
 
@@ -309,127 +315,21 @@ class Parser
 		}
 		BencodeValue parse_integer()
 		{
-			/*
-			Example I/O (substring starting from "m_pos"):
-			    "i0e"       ->  0
-			    "i42e"      ->  42
-			    "i-42e"     ->  -42
-			Parses a SINGLE integer, e.g. NOT i0ei42e
-			*/
-			/*
-			Idea:
-			- We find the 'i'
-			- Skip everything until we hit 'e'
-			- Get the string view of whatever is in between, pass to std::to_int() or whatever
-			*/
 			if(peek() != std::byte('i'))
 			{
 				throw std::invalid_argument("#d213b1: i not found");
 			}
 
 			consume();
-			const auto it_start = m_input.begin() + m_pos;
-			const auto it_end = std::find(it_start, m_input.end(), std::byte('e'));
 
-			if(it_end == m_input.end())
-			{
-				throw std::invalid_argument("#206d05: e not found");
-			}
-
-			size_t length = std::distance(it_start, it_end);
-
-			if(it_end == m_input.end())
-			{
-				throw std::invalid_argument("#5619cc: integer of length 0");
-			}
-
-			m_pos += length;
-			consume(); // Consume the e
 			Integer res;
-			const char* start_ptr = reinterpret_cast<const char*>(std::to_address(it_start));
-			const char* end_ptr = reinterpret_cast<const char*>(std::to_address(it_end));
-			auto [ptr, ec] = std::from_chars(start_ptr, end_ptr, res);
-
-			if(ec != std::errc() || ptr != end_ptr)
-			{
-				throw std::runtime_error("#7defba: from_chars failed");
-			}
-
-			// Spec checks that do parse with from_chars()
-			if(length > 1)
-			{
-				if(start_ptr[0] == '-' && start_ptr[1] == '-')
-				{
-					throw std::runtime_error("#148aea: double - in integer");
-				}
-
-				if(start_ptr[0] == '-' && start_ptr[1] == '0')
-				{
-					throw std::runtime_error("#148aea: -0 in integer");
-				}
-
-				if(start_ptr[0] == '0')
-				{
-					throw std::runtime_error("#6721cd: leading 0 in integer");
-				}
-			}
+			res = parse_raw_integer<std::byte('e')>();
 
 			return BencodeValue(res);
 		}
 		BencodeValue parse_bytes()
 		{
-			/*
-			Example I/O (substring starting from "m_pos"):
-			    "0:",           ->  ""
-			    "7:bencode",    ->  "bencode"
-			    "1:\0x27",      ->  "\0x27"
-			    "10:horseHorse" ->  "horseHorse"
-
-			Note:
-			    We don't have to loop through all the bytes,
-			    assuming the length is OK.
-
-			Idea:
-			    We have to find the part before the ":"
-			    Convert the part before : to integer
-			    Copy integer many symbols to output
-
-			TODO:
-			    - Combine parse_integer's integer reading part with
-			        what we do here for integer part into a function?
-			*/
-			int64_t start_integer = m_pos;
-			int64_t end_integer = start_integer;
-
-			for(uint64_t i = m_pos; i < m_input.size(); ++i)
-			{
-				/*
-				Assumptions (Checks for later malformed input handling):
-				    only read 0,1,2,3,4,5,6,7,8,9
-				    i starts at a digit
-				    There exists a :
-				*/
-				std::byte current_character = m_input[i];
-
-				if(current_character == std::byte(':'))
-				{
-					end_integer = i;
-					break;
-				}
-			}
-
-			m_pos = end_integer;
-			consume(); // Consume the :
-			int64_t integer_part;
-			const char* start_ptr = reinterpret_cast<const char*>(m_input.data() + start_integer);
-			const char* end_ptr = reinterpret_cast<const char*>(m_input.data() + end_integer);
-			auto [ptr, ec] = std::from_chars(start_ptr, end_ptr, integer_part);
-
-			if(ec != std::errc() || ptr != end_ptr)
-			{
-				throw std::runtime_error("#c9f1aa");
-			}
-
+			int64_t integer_part = parse_raw_integer<std::byte(':')>();
 
 			if(integer_part < 0)
 			{
@@ -509,6 +409,62 @@ class Parser
 			m_pos++;
 
 			return BencodeValue(res);
+		}
+	private:
+		template <std::byte delimiter>
+		requires (delimiter == std::byte(':') || delimiter == std::byte('e'))
+		Integer parse_raw_integer()
+		{
+			// TODO: Then we can combine parse_integer and parse_bytes the integer part
+
+
+			const auto it_start = m_input.begin() + m_pos;
+			const auto it_end = std::find(it_start, m_input.end(), delimiter);
+
+			if(it_end == m_input.end())
+			{
+				throw std::invalid_argument("#206d05: e not found");
+			}
+
+			size_t length = std::distance(it_start, it_end);
+
+			if(it_end == m_input.end())
+			{
+				throw std::invalid_argument("#5619cc: integer of length 0");
+			}
+
+			m_pos += length;
+			consume(); // Consume the e
+			Integer res;
+			const char* start_ptr = reinterpret_cast<const char*>(std::to_address(it_start));
+			const char* end_ptr = reinterpret_cast<const char*>(std::to_address(it_end));
+			auto [ptr, ec] = std::from_chars(start_ptr, end_ptr, res);
+
+			if(ec != std::errc() || ptr != end_ptr)
+			{
+				throw std::runtime_error("#7defba: from_chars failed");
+			}
+
+			// Spec checks that do parse with from_chars()
+			if(length > 1)
+			{
+				if(start_ptr[0] == '-' && start_ptr[1] == '-')
+				{
+					throw std::runtime_error("#148aea: double - in integer");
+				}
+
+				if(start_ptr[0] == '-' && start_ptr[1] == '0')
+				{
+					throw std::runtime_error("#148aea: -0 in integer");
+				}
+
+				if(start_ptr[0] == '0')
+				{
+					throw std::runtime_error("#6721cd: leading 0 in integer");
+				}
+			}
+
+			return res;
 		}
 };
 
