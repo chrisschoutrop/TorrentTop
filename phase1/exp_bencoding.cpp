@@ -12,18 +12,6 @@
 #include <random>
 #include <algorithm>
 
-bool locale_proof_isdigit(const uint8_t ch)
-{
-	/*
-	From: https://en.cppreference.com/cpp/string/byte/isdigit
-	    isdigit and isxdigit are the only standard narrow character classification
-	    functions that are not affected by the currently installed C locale.
-	    although some implementations (e.g. Microsoft in 1252 codepage) may classify
-	    additional single-byte characters as digits.
-	*/
-	return (ch >= '0' && ch <= '9');
-}
-
 // Modern idea using std::variant
 // We can then access with std::holds_alternative, std::get, std::get_if
 struct BencodeValue;
@@ -94,42 +82,42 @@ struct BencodeValue
 	{
 		return std::get<Dict>(data);
 	}
-};
 
-// Helper struct for inline pattern matching
-// https://www.cppstories.com/2019/02/2lines3featuresoverload.html/
-template<class... Ts> struct overloaded : Ts...
-{
-	using Ts::operator()...;
-};
-template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>;
-
-void print_node(const BencodeValue& node)
-{
-	std::visit(overloaded
+	// Helper struct for inline pattern matching
+	// https://www.cppstories.com/2019/02/2lines3featuresoverload.html/
+	template<class... Ts> struct overloaded : Ts...
 	{
-		[](int64_t val)
-		{
-			std::cout << "Integer: " << val << "\n";
-		},
-		[](const Bytes & bytes)
-		{
-			std::cout << "Bytes of size: " << bytes.size() << "\n";
-		},
-		[](const List & list)
-		{
-			std::cout << "List of size: " << list.size() << "\n";
+		using Ts::operator()...;
+	};
+	template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>;
 
-			for (const auto& elem : list) print_node(elem);
-		},
-		[](const Dict & dict)
+	void print_node(const BencodeValue& node)
+	{
+		std::visit(overloaded
 		{
-			std::cout << "Dict with " << dict.size() << " keys\n";
+			[&](int64_t val)
+			{
+				std::cout << "Integer: " << val << "\n";
+			},
+			[&](const Bytes & bytes)
+			{
+				std::cout << "Bytes of size: " << bytes.size() << "\n";
+			},
+			[&](const List & list)
+			{
+				std::cout << "List of size: " << list.size() << "\n";
 
-			for (const auto& [k, v] : dict) print_node(v);
-		}
-	}, node.data);
-}
+				for (const auto& elem : list) print_node(elem);
+			},
+			[&](const Dict & dict)
+			{
+				std::cout << "Dict with " << dict.size() << " keys\n";
+
+				for (const auto& [k, v] : dict) print_node(v);
+			}
+		}, node.data);
+	}
+};
 
 class Parser
 {
@@ -371,6 +359,17 @@ class Parser
 			}
 
 			return res;
+		}
+		bool locale_proof_isdigit(const uint8_t ch)
+		{
+			/*
+			From: https://en.cppreference.com/cpp/string/byte/isdigit
+			    isdigit and isxdigit are the only standard narrow character classification
+			    functions that are not affected by the currently installed C locale.
+			    although some implementations (e.g. Microsoft in 1252 codepage) may classify
+			    additional single-byte characters as digits.
+			*/
+			return (ch >= '0' && ch <= '9');
 		}
 };
 
