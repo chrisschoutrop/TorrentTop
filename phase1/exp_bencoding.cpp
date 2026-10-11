@@ -824,8 +824,33 @@ void test_bytes_invalid()
 	    4:          length declared, no data
 	    1.5:abc     decimal length
 	    999:abc     length exceeds available data
-
 	*/
+	std::vector<std::string> inputs_strings
+	{
+		"4:spa",
+		"a:spam",
+		"-1:abc",
+		":spam",
+		"4:",
+		"1.5:abc",
+		"999:abc",
+	};
+	std::vector<std::vector<std::byte>> inputs = convert_strings_to_bytes(inputs_strings);
+
+	for(uint64_t i = 0; i < inputs.size(); ++i)
+	{
+		bool exceptionThrown = false;
+		try
+		{
+			//https://stackoverflow.com/questions/15668309/c-assertion-function-to-check-that-exception-is-thrown
+			Parser P(inputs[i]);
+			BencodeValue result = P.parse_bytes();
+		} catch(...)
+		{
+			exceptionThrown = true;
+		}
+		assert(exceptionThrown);
+	}
 }
 void test_parse_invalid()
 {
