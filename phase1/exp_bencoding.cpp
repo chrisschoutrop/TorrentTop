@@ -345,8 +345,8 @@ class Parser
 			m_pos += length;
 			consume(); // Consume the e
 			Integer res;
-			const char* start_ptr = reinterpret_cast<const char*>(&(*it_start));
-			const char* end_ptr = reinterpret_cast<const char*>(&(*it_end));
+			const char* start_ptr = reinterpret_cast<const char*>(std::to_address(it_start));
+			const char* end_ptr = reinterpret_cast<const char*>(std::to_address(it_end));
 			auto [ptr, ec] = std::from_chars(start_ptr, end_ptr, res);
 
 			if(ec != std::errc() || ptr != end_ptr)
