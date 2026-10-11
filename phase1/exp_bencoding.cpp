@@ -251,29 +251,7 @@ class Parser
 			    but it's a silent "unimplemented"; throw std::logic_error("not implemented");
 			    fails loudly instead — and add <stdexcept> if it doesn't come in transitively.
 			*/
-			std::byte current_character = peek();
-			BencodeValue result = {};
-
-			if(current_character == std::byte('i'))
-			{
-				result = parse_integer();
-			}
-			else if(locale_proof_isdigit(std::to_integer<uint8_t>(current_character)))
-			{
-				result = parse_bytes();
-			}
-			else if(current_character == std::byte('l'))
-			{
-				result = parse_list();
-			}
-			else if(current_character == std::byte('d'))
-			{
-				result = parse_dict();
-			}
-			else
-			{
-				throw std::invalid_argument("#34bc24");
-			}
+			BencodeValue result = parse_value();
 
 			if((size_t)m_pos != m_input.size())
 			{
@@ -281,6 +259,31 @@ class Parser
 			}
 
 			return result;
+		}
+		BencodeValue parse_value()
+		{
+			std::byte current_character = peek();
+
+			if (current_character == std::byte('i'))
+			{
+				return parse_integer();
+			}
+			else if (current_character == std::byte('l'))
+			{
+				return parse_list();
+			}
+			else if (current_character == std::byte('d'))
+			{
+				return parse_dict();
+			}
+			else if (locale_proof_isdigit(std::to_integer<uint8_t>(current_character)))
+			{
+				return parse_bytes();
+			}
+			else
+			{
+				throw std::invalid_argument("#fecd61");
+			}
 		}
 		std::byte peek(const int64_t offset = 0)
 		{
@@ -498,28 +501,7 @@ class Parser
 
 			while(peek() != std::byte('e'))
 			{
-				std::byte current_character = peek();
-
-				if(current_character == std::byte('i'))
-				{
-					res.emplace_back(parse_integer());
-				}
-				else if(locale_proof_isdigit(std::to_integer<uint8_t>(current_character)))
-				{
-					res.emplace_back(parse_bytes());
-				}
-				else if(current_character == std::byte('l'))
-				{
-					res.emplace_back(parse_list());
-				}
-				else if(current_character == std::byte('d'))
-				{
-					res.emplace_back(parse_dict());
-				}
-				else
-				{
-					throw std::invalid_argument("#51e02a");
-				}
+				res.emplace_back(parse_value());
 			}
 
 			m_pos++;
@@ -544,8 +526,7 @@ class Parser
 
 			while(peek() != std::byte('e'))
 			{
-				Bytes key = *parse_bytes().as_bytes();
-				std::byte current_character = peek();
+				Bytes key = parse_bytes().get_bytes();
 
 				// Check if key is not duplicate
 				if(res.contains(key))
@@ -554,33 +535,12 @@ class Parser
 				}
 
 				// Check if key is sorted
-				if( res.size() > 0 &&
-				        std::prev(res.end())->first >= key
-				  )
+				if( res.size() > 0 && std::prev(res.end())->first >= key)
 				{
 					throw std::invalid_argument("#280070");
 				}
 
-				if(current_character == std::byte('i'))
-				{
-					res.emplace(key, *parse_integer().as_int());
-				}
-				else if(locale_proof_isdigit(std::to_integer<uint8_t>(current_character)))
-				{
-					res.emplace(key, *parse_bytes().as_bytes());
-				}
-				else if(current_character == std::byte('l'))
-				{
-					res.emplace(key, *parse_list().as_list());
-				}
-				else if(current_character == std::byte('d'))
-				{
-					res.emplace(key, *parse_dict().as_dict());
-				}
-				else
-				{
-					throw std::invalid_argument("#51e02a");
-				}
+				res.emplace(key, parse_value());
 			}
 
 			m_pos++;
