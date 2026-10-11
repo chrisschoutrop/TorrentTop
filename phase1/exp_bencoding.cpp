@@ -215,7 +215,22 @@ class Parser
 	public:
 		int64_t m_pos = 0;
 		int64_t m_recursion_depth = 0;
-		const int64_t m_max_recursion_depth = 1024;
+		static constexpr int64_t m_max_recursion_depth = 128;
+		struct DepthGuard {
+			/*
+			This saves the reference to the m_recursion_depth
+			Every time we go deeper in parse_value() it gets incremented
+			Every time we leave it gets decremented
+			We have to use reference, since m_recursion_depth cannot be accessed
+			*/
+			int64_t& depth;
+			DepthGuard(int64_t& d) : depth(d) {
+				if (++depth > m_max_recursion_depth) {
+					throw std::runtime_error("#9d10dd: max recursion depth reached in parse_value()");
+				}
+			}
+			~DepthGuard() { --depth; }
+		};		
 
 		// std::span/view such that the Parser does not
 		// copy everything, and we can view in chunks
@@ -223,11 +238,12 @@ class Parser
 		// span also decouples this from "vector", we can take in anything
 		// as long as it's a bunch of contiguous std::bytes
 		std::span<const std::byte> m_input;
-		Parser(std::span<const std::byte> input): m_input(input)
+		explicit Parser(std::span<const std::byte> input): m_input(input)
 		{
 		}
 		BencodeValue parse()
 		{
+			m_recursion_depth=0;
 			BencodeValue result = parse_value();
 
 			if((size_t)m_pos != m_input.size())
@@ -239,6 +255,8 @@ class Parser
 		}
 		BencodeValue parse_value()
 		{
+			DepthGuard guard(m_recursion_depth);			
+
 			m_recursion_depth++;
 
 			if(m_recursion_depth > m_max_recursion_depth)
