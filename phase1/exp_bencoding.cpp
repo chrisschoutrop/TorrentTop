@@ -212,14 +212,6 @@ void print_node(const BencodeValue& node)
 
 class Parser
 {
-		/*
-		TODO:
-		- Handle malformed inputs
-		    - What happens if the input string contains an 'i' but never reaches an 'e'?
-		    - Overly long integers?
-		    - Mismatch in length & actual length in bytes
-		- Clean this up once it works correctly
-		*/
 	public:
 		int64_t m_pos = 0;
 
@@ -234,24 +226,6 @@ class Parser
 		}
 		BencodeValue parse()
 		{
-			// TODO, switch to call correct function for parsing entire bencoded input
-			/*
-			TODO Qwen warned for this problem:
-			    The one thing to fix before you implement parse(): Potato parse() returns
-			    by value, and its first real line — return parse_list(); — will slice.
-			    Copying a List into a Potato keeps only the base subobject;
-			    the vector<unique_ptr<Potato>> (i.e. the entire parsed tree) is destroyed.
-			    It compiles clean, no warning, silent data loss — the classic
-			    polymorphic-return trap. The top-level parse must return ownership,
-			    the same way List/Dict already store children:
-			    std::unique_ptr<Potato> parse();
-			    The body is the same if/else chain you already wrote in parse_list (a real
-			    switch works too — it needs an integer type, so
-			    switch(std::to_integer<unsigned char>(peek())) with the digit case in default).
-			    Small related point: the return {} stub compiles (a bare Potato),
-			    but it's a silent "unimplemented"; throw std::logic_error("not implemented");
-			    fails loudly instead — and add <stdexcept> if it doesn't come in transitively.
-			*/
 			BencodeValue result = parse_value();
 
 			if((size_t)m_pos != m_input.size())
@@ -323,7 +297,7 @@ class Parser
 			*/
 			if(peek() != std::byte('i'))
 			{
-				throw std::invalid_argument("#d213b1 i not found");
+				throw std::invalid_argument("#d213b1: i not found");
 			}
 
 			consume();
@@ -332,14 +306,14 @@ class Parser
 
 			if(it_end == m_input.end())
 			{
-				throw std::invalid_argument("#206d05 e not found");
+				throw std::invalid_argument("#206d05: e not found");
 			}
 
 			size_t length = std::distance(it_start, it_end);
 
 			if(it_end == m_input.end())
 			{
-				throw std::invalid_argument("#5619cc integer of length 0");
+				throw std::invalid_argument("#5619cc: integer of length 0");
 			}
 
 			m_pos += length;
@@ -351,7 +325,7 @@ class Parser
 
 			if(ec != std::errc() || ptr != end_ptr)
 			{
-				throw std::runtime_error("#7defba from_chars failed");
+				throw std::runtime_error("#7defba: from_chars failed");
 			}
 
 			// Spec checks that do parse with from_chars()
@@ -359,17 +333,17 @@ class Parser
 			{
 				if(start_ptr[0] == '-' && start_ptr[1] == '-')
 				{
-					throw std::runtime_error("#148aea double - in integer");
+					throw std::runtime_error("#148aea: double - in integer");
 				}
 
 				if(start_ptr[0] == '-' && start_ptr[1] == '0')
 				{
-					throw std::runtime_error("#148aea -0 in integer");
+					throw std::runtime_error("#148aea: -0 in integer");
 				}
 
 				if(start_ptr[0] == '0')
 				{
-					throw std::runtime_error("#6721cd leading 0 in integer");
+					throw std::runtime_error("#6721cd: leading 0 in integer");
 				}
 			}
 
@@ -499,13 +473,13 @@ class Parser
 				// Check if key is not duplicate
 				if(res.contains(key))
 				{
-					throw std::invalid_argument("#a5546a duplicate key in dict");
+					throw std::invalid_argument("#a5546a: duplicate key in dict");
 				}
 
 				// Check if key is sorted
 				if( res.size() > 0 && std::prev(res.end())->first >= key)
 				{
-					throw std::invalid_argument("#280070 keys not sorted");
+					throw std::invalid_argument("#280070: keys not sorted");
 				}
 
 				res.emplace(key, parse_value());
@@ -764,6 +738,7 @@ void test_integer_invalid()
 	    il42e       non-digit after i
 	    i007e       leading zero in integer
 	    i-0e        negative zero
+	    i-3-4e      non-consecutive double -
 	*/
 	std::vector<std::string> inputs_strings
 	{
