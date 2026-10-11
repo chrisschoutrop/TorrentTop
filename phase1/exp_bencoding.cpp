@@ -288,10 +288,19 @@ class Parser
 
 			if(location < 0 || (size_t)location >= m_input.size())
 			{
-				throw std::invalid_argument("#04c706");
+				throw std::out_of_range("#04c706");
 			}
 
 			return m_input[location];
+		}
+		void consume(size_t count = 1)
+		{
+			if (m_pos + count > m_input.size())
+			{
+				throw std::out_of_range("#03c9cf");
+			}
+
+			m_pos += count;
 		}
 		BencodeValue parse_integer()
 		{
@@ -381,7 +390,8 @@ class Parser
 				}
 			}
 
-			m_pos = end + 1; // Consume the e
+			m_pos = end;
+			consume(); // Consume the e
 			Integer res;
 			const char* start_ptr = reinterpret_cast<const char*>(m_input.data() + start);
 			const char* end_ptr = reinterpret_cast<const char*>(m_input.data() + end);
@@ -436,7 +446,8 @@ class Parser
 				}
 			}
 
-			m_pos = end_integer + 1; // Consume the :
+			m_pos = end_integer;
+			consume(); // Consume the :
 			int64_t integer_part;
 			const char* start_ptr = reinterpret_cast<const char*>(m_input.data() + start_integer);
 			const char* end_ptr = reinterpret_cast<const char*>(m_input.data() + end_integer);
@@ -1010,6 +1021,26 @@ void test_random_inputs()
 	}
 }
 
+
+
+
+#ifndef FUZZER
+int main()
+{
+	std::cout << "<test>" << std::endl;
+	test_integers();
+	test_bytes();
+	test_list();
+	test_dict();
+	test_parse();
+	test_integer_invalid();
+	test_bytes_invalid();
+	test_parse_invalid();
+	test_random_inputs();
+	std::cout << "</test>" << std::endl;
+	return 0;
+}
+#else
 // fuzz_target.cc
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size)
 {
@@ -1028,23 +1059,6 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size)
 
 	}
 
-	return 0;
-}
-
-#ifndef FUZZER
-int main()
-{
-	std::cout << "<test>" << std::endl;
-	test_integers();
-	test_bytes();
-	test_list();
-	test_dict();
-	test_parse();
-	test_integer_invalid();
-	test_bytes_invalid();
-	test_parse_invalid();
-	test_random_inputs();
-	std::cout << "</test>" << std::endl;
 	return 0;
 }
 #endif
