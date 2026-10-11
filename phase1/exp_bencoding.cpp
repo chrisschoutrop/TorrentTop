@@ -11,86 +11,7 @@
 #include <optional>
 #include <random>
 #include <algorithm>
-/*
-Notes from Dave 27-Sep-2026:
-[X] Why isn't input just a field in the parser?
-[X] Use std::span instead of const std::vector&.
-[X] Add a peek(offset = 0) method instead of input.at(pos).
-[ ] You can just use std::find to locate the next 'e'. -> I think the loops do more
-    than just finding, can maybe do with lambda
-[X] Why not use a switch to call the correct variant and put that in a top-level parse function?
-[P] Exceptions :( -> Planned: Error handling later in something outside of this to catch all throws from the Parser.
-*/
-/*
-Testcases from
-https://en.wikipedia.org/wiki/Bencode
-https://www.bittorrent.org/beps/bep_0003.html
 
-Idea of this file is to make a working experiment for bencode
-then move this into a proper boost test+construction later when we
-have figured out how to structure everything.
-
-Problem:
-- I don't really know what this is supposed to yield eventually.
-- I suspect we have to do something with std::variant, but the
-    dict in dict seems to mess with the types
-- I vaguely know there is something with LL1 grammars and recursive
-    decent parsers that may be useful here.
-    The "recursive" makes sense since we can have dicts in dicts.
-- I don't know what a "grammar" is.
-- I don't know what the output has to be; how to do dicts of lists/dicts recursively.
-
-Way forward (what locally seems OK):
-- Implement something that can parse basic things like int/byte string
-    that way we can at least get a feel for LL1 parsing (per-element decisions)
-- How I think this works is we can use a/the stack, whenever we encounter something
-    like "i" we call parse_integer().
-
-Handling recursive mess:
-- We can handle inputs that are only bytes or integers with
-    std::vector<std::variant<int64_t,std::vector<std::byte>>>
-- Problem happens when we have to store lists/dicts, which can recursively
-    contain more lists/dicts.
-- I'm fully expecting that there is some <100 line solution to parse bencode out there
-    but that's not the point of this project.
-- ? *Potato where *Potato points to any of:
-    - int64_t
-    - std::vector<std::byte>
-    - std::list<*Potato>
-    - std::map<std::vector<std::byte>>,*Potato>
-- I vaguely remember this from a hackerrank problem long ago;
-    class Potato{
-    };
-    class Integer : public Potato{
-        int64_t m_data;
-    };
-    class Bytes : public Potato{
-        std::vector<std::byte> m_data;
-    };
-    class List : public Potato{
-        std::list<*Potato> m_data;
-    };
-    class Dict : public Potato{
-        std::map<std::vector<std::byte>>,*Potato> m_data
-    };
-    Where we could make a std::vector<*Potato> which could contain any of the sub-potatoes.
-- Note: in bencode, the "base objects" are either int64_t or std::vector<std::byte>.
-    So Lists and Dicts MUST contain a std::vector<*Potato> as their m_data "contents" (+keys for dict).
-- How I think this helps is that we can now go through the input left-to-right, then
-    if we encounter an integer, spawn an Integer subpotato, throw that into the std::vector<*Potato>
-- Note: std::list is probably terrible performance, but keeping it in the notes to help my mental model
-- We should also use something other than raw pointers in final version
-- I think this concept could work
-
-Loot from poking someone about the problem:
-Often one includes something to know what the type of an AST node is:
-At least if you don't use native rtti
-struct AstNode {
-    enum Type { ... } type;
-    ...
-- RTTI = run-time type identification, then we don't have to rely on static_cast
-    https://en.wikipedia.org/wiki/Run-time_type_information
-*/
 bool locale_proof_isdigit(const uint8_t ch)
 {
 	/*
@@ -238,11 +159,13 @@ class Parser
 			}
 		};
 
-		// std::span/view such that the Parser does not
-		// copy everything, and we can view in chunks
-		// ownership is with whatever passed in the input
-		// span also decouples this from "vector", we can take in anything
-		// as long as it's a bunch of contiguous std::bytes
+		/*
+		std::span/view such that the Parser does not
+		copy everything, and we can view in chunks
+		ownership is with whatever passed in the input
+		span also decouples this from "vector", we can take in anything
+		as long as it's a bunch of contiguous std::bytes
+		*/
 		std::span<const std::byte> m_input;
 		explicit Parser(std::span<const std::byte> input): m_input(input)
 		{
@@ -262,13 +185,6 @@ class Parser
 		BencodeValue parse_value()
 		{
 			DepthGuard guard(m_recursion_depth);
-
-			m_recursion_depth++;
-
-			if(m_recursion_depth > m_max_recursion_depth)
-			{
-				throw std::runtime_error("#9d10dd: max recursion depth reached in parse_value()");
-			}
 
 			std::byte current_character = peek();
 
@@ -372,13 +288,6 @@ class Parser
 		}
 		BencodeValue parse_dict()
 		{
-			/*
-			TODO:
-			- std::map silently reorders unsorted keys. BEP3 requires dictionary keys in ascending byte order,
-			    so d3:woof3:dog3:cow3:mooe is spec-invalid but your parser accepts it.
-			- Duplicate keys are silently dropped: map::emplace is a no-op for an existing key (the freshly-built
-			    value is created and immediately destroyed). You'll want a reject, not a drop.
-			*/
 			if(peek() != std::byte('d'))
 			{
 				throw std::invalid_argument("#6f44f7");
@@ -415,9 +324,6 @@ class Parser
 		requires (delimiter == std::byte(':') || delimiter == std::byte('e'))
 		Integer parse_raw_integer()
 		{
-			// TODO: Then we can combine parse_integer and parse_bytes the integer part
-
-
 			const auto it_start = m_input.begin() + m_pos;
 			const auto it_end = std::find(it_start, m_input.end(), delimiter);
 
@@ -434,7 +340,7 @@ class Parser
 			}
 
 			m_pos += length;
-			consume(); // Consume the e
+			consume(); // Consume the ending delimiter
 			Integer res;
 			const char* start_ptr = reinterpret_cast<const char*>(std::to_address(it_start));
 			const char* end_ptr = reinterpret_cast<const char*>(std::to_address(it_end));
