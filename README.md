@@ -19,7 +19,7 @@ Ideas:
 
 # 📝 The plan 📝
 ## Phase 1 (Data and parsing)
-- Bencode parsing (WIP)
+- ✅ Bencode parsing
 - Load torrent files
 - SHA-1 hash for verifying integrity of downloaded pieces
 
