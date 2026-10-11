@@ -810,44 +810,6 @@ void test_parse()
 	}
 }
 
-void test_random_inputs()
-{
-	/*
-	Idea:
-	If we have an encoder too we can encode random data
-	and see if we break anything.
-
-	For now just check that it doesn't segfault or similar
-	*/
-	static volatile size_t sink = 0;
-	const int64_t N_test = 100;
-	std::mt19937 rng(42);
-	std::poisson_distribution<int64_t> dist_length(1000);
-	std::uniform_int_distribution<u_int8_t> dist_bytes(0x0, 0xff);
-
-	for(int64_t i = 0; i < N_test; ++i)
-	{
-		std::vector<std::byte> input(dist_length(rng));
-
-		for (size_t j = 0; j < input.size(); j++)
-		{
-			input[j] = static_cast<std::byte>(dist_bytes(rng));
-		}
-
-		try
-		{
-			Parser P(input);
-			BencodeValue result = P.parse();
-			sink = sink + sizeof(result);
-		}
-		catch(...)
-		{
-			;
-		}
-
-	}
-}
-
 void test_integer_invalid()
 {
 	/*
@@ -1011,6 +973,65 @@ void test_parse_invalid()
 	}
 }
 
+void test_random_inputs()
+{
+	/*
+	Idea:
+	If we have an encoder too we can encode random data
+	and see if we break anything.
+
+	For now just check that it doesn't segfault or similar
+	*/
+	static volatile size_t sink = 0;
+	const int64_t N_test = 100;
+	std::mt19937 rng(42);
+	std::poisson_distribution<int64_t> dist_length(1000);
+	std::uniform_int_distribution<u_int8_t> dist_bytes(0x0, 0xff);
+
+	for(int64_t i = 0; i < N_test; ++i)
+	{
+		std::vector<std::byte> input(dist_length(rng));
+
+		for (size_t j = 0; j < input.size(); j++)
+		{
+			input[j] = static_cast<std::byte>(dist_bytes(rng));
+		}
+
+		try
+		{
+			Parser P(input);
+			BencodeValue result = P.parse();
+			sink = sink + sizeof(result);
+		}
+		catch(...)
+		{
+			;
+		}
+	}
+}
+
+// fuzz_target.cc
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size)
+{
+	std::span<const std::byte> input(
+	    reinterpret_cast<const std::byte*>(Data),
+	    Size
+	);
+	Parser P(input);
+
+	try
+	{
+		BencodeValue result = P.parse();
+	}
+	catch(...)
+	{
+
+	}
+
+	return 0;
+}
+
+#ifndef FUZZER
 int main()
 {
 	std::cout << "<test>" << std::endl;
@@ -1026,4 +1047,4 @@ int main()
 	std::cout << "</test>" << std::endl;
 	return 0;
 }
-
+#endif
