@@ -499,13 +499,13 @@ class Parser
 				// Check if key is not duplicate
 				if(res.contains(key))
 				{
-					throw std::invalid_argument("#a5546a");
+					throw std::invalid_argument("#a5546a duplicate key in dict");
 				}
 
 				// Check if key is sorted
 				if( res.size() > 0 && std::prev(res.end())->first >= key)
 				{
-					throw std::invalid_argument("#280070");
+					throw std::invalid_argument("#280070 keys not sorted");
 				}
 
 				res.emplace(key, parse_value());
