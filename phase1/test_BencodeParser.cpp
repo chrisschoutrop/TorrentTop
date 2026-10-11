@@ -15,7 +15,7 @@ class test_Parser
 			test_parse_invalid();
 			test_random_inputs();
 		}
-		std::vector<std::byte> convert_string_to_bytes(const std::string& inputs_string)
+		static std::vector<std::byte> convert_string_to_bytes(const std::string& inputs_string)
 		{
 			std::vector<std::byte> bytes;
 			bytes.resize(inputs_string.size());
@@ -27,7 +27,7 @@ class test_Parser
 
 			return bytes;
 		}
-		std::vector<std::vector<std::byte>> convert_strings_to_bytes(const std::vector<std::string>& inputs_strings)
+		static std::vector<std::vector<std::byte>> convert_strings_to_bytes(const std::vector<std::string>& inputs_strings)
 		{
 			std::vector<std::vector<std::byte>> inputs(inputs_strings.size());
 			for(uint64_t i_str = 0; i_str<inputs_strings.size(); ++i_str)
@@ -38,7 +38,7 @@ class test_Parser
 			return inputs;
 		}
 
-		void test_integers()
+		static void test_integers()
 		{
 			std::vector<std::string> inputs_strings
 			{
@@ -65,7 +65,7 @@ class test_Parser
 				assert(P.m_pos == expected_pos);
 			}
 		}
-		void test_bytes()
+		static void test_bytes()
 		{
 			/*
 			TODO:
@@ -102,7 +102,7 @@ class test_Parser
 			}
 		}
 
-		void test_list()
+		static void test_list()
 		{
 			/*
 			Test inputs:
@@ -160,7 +160,7 @@ class test_Parser
 			}
 		}
 
-		void test_dict()
+		static void test_dict()
 		{
 			/*
 			TODO
@@ -220,7 +220,7 @@ class test_Parser
 			}
 		}
 
-		void test_parse()
+		static void test_parse()
 		{
 			/*
 			TODO
@@ -247,7 +247,7 @@ class test_Parser
 			}
 		}
 
-		void test_integer_invalid()
+		static void test_integer_invalid()
 		{
 			/*
 			    i42         missing terminator e
@@ -299,7 +299,7 @@ class test_Parser
 				assert(exceptionThrown);
 			}
 		}
-		void test_bytes_invalid()
+		static void test_bytes_invalid()
 		{
 			/*
 			    4:spa       data shorter than declared length
@@ -338,7 +338,7 @@ class test_Parser
 				assert(exceptionThrown);
 			}
 		}
-		void test_parse_invalid()
+		static void test_parse_invalid()
 		{
 			/*
 			    (empty string)              no value at all
@@ -414,7 +414,7 @@ class test_Parser
 			}
 		}
 
-		void test_random_inputs()
+		static void test_random_inputs()
 		{
 			/*
 			Idea:
@@ -472,10 +472,10 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size)
 	    reinterpret_cast<const std::byte*>(Data),
 	    Size
 	);
-	Parser P(input);
 
 	try
 	{
+		Parser P(input);
 		BencodeValue result = P.parse();
 	}
 	catch(...)

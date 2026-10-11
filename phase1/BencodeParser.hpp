@@ -30,7 +30,7 @@ struct BencodeValue
 	VariantType data;
 
 	BencodeValue() = default;
-	BencodeValue(VariantType v) : data(std::move(v)) {}
+	explicit BencodeValue(VariantType v) : data(std::move(v)) {}
 
 	// Checkers
 	bool is_int()   const
@@ -148,7 +148,7 @@ class Parser
 			We have to use reference, since m_recursion_depth cannot be accessed
 			*/
 			int64_t& depth;
-			DepthGuard(int64_t& d) : depth(d)
+			explicit DepthGuard(int64_t& d) : depth(d)
 			{
 				if (++depth > m_max_recursion_depth)
 				{
@@ -353,7 +353,7 @@ class Parser
 
 			return res;
 		}
-		bool locale_proof_isdigit(const uint8_t ch)
+		static bool locale_proof_isdigit(const uint8_t ch)
 		{
 			/*
 			From: https://en.cppreference.com/cpp/string/byte/isdigit
@@ -364,7 +364,7 @@ class Parser
 			*/
 			return (ch >= '0' && ch <= '9');
 		}
-		std::byte peek(const int64_t offset = 0)
+		std::byte peek(const int64_t offset = 0) const
 		{
 			int64_t location = offset + m_pos;
 
