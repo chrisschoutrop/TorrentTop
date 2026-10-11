@@ -131,8 +131,12 @@ struct BencodeValue
 
 class Parser
 {
+		friend class test_Parser;
 	public:
+	private:
 		int64_t m_pos = 0;
+		std::span<const std::byte> m_input;
+
 		int64_t m_recursion_depth = 0;
 		static constexpr int64_t m_max_recursion_depth = 128;
 		struct DepthGuard
@@ -156,17 +160,16 @@ class Parser
 				--depth;
 			}
 		};
-
-		/*
-		std::span/view such that the Parser does not
-		copy everything, and we can view in chunks
-		ownership is with whatever passed in the input
-		span also decouples this from "vector", we can take in anything
-		as long as it's a bunch of contiguous std::bytes
-		*/
-		std::span<const std::byte> m_input;
+	public:
 		explicit Parser(std::span<const std::byte> input): m_input(input)
 		{
+			/*
+			std::span/view such that the Parser does not
+			copy everything, and we can view in chunks
+			ownership is with whatever passed in the input
+			span also decouples this from "vector", we can take in anything
+			as long as it's a bunch of contiguous std::bytes
+			*/
 		}
 		BencodeValue parse()
 		{
@@ -206,26 +209,6 @@ class Parser
 			{
 				throw std::invalid_argument("#fecd61");
 			}
-		}
-		std::byte peek(const int64_t offset = 0)
-		{
-			int64_t location = offset + m_pos;
-
-			if(location < 0 || (size_t)location >= m_input.size())
-			{
-				throw std::out_of_range("#04c706");
-			}
-
-			return m_input[location];
-		}
-		void consume(size_t count = 1)
-		{
-			if (m_pos + count > m_input.size())
-			{
-				throw std::out_of_range("#03c9cf");
-			}
-
-			m_pos += count;
 		}
 		BencodeValue parse_integer()
 		{
@@ -380,6 +363,26 @@ class Parser
 			    additional single-byte characters as digits.
 			*/
 			return (ch >= '0' && ch <= '9');
+		}
+		std::byte peek(const int64_t offset = 0)
+		{
+			int64_t location = offset + m_pos;
+
+			if(location < 0 || (size_t)location >= m_input.size())
+			{
+				throw std::out_of_range("#04c706");
+			}
+
+			return m_input[location];
+		}
+		void consume(size_t count = 1)
+		{
+			if (m_pos + count > m_input.size())
+			{
+				throw std::out_of_range("#03c9cf");
+			}
+
+			m_pos += count;
 		}
 };
 
