@@ -784,6 +784,35 @@ void test_integer_invalid()
 	    i42Ee       uppercase E
 	    il42e       non-digit after i
 	*/
+	std::vector<std::string> inputs_strings
+	{
+		"i42",
+		"ie",
+		"i+42e",
+		"i1.5e",
+		"i--1e",
+		"i12-34e",
+		"i42x",
+		"i4 2e",
+		"i42Ee",
+		"il42e",
+	};
+	std::vector<std::vector<std::byte>> inputs = convert_strings_to_bytes(inputs_strings);
+
+	for(uint64_t i = 0; i < inputs.size(); ++i)
+	{
+		bool exceptionThrown = false;
+		try
+		{
+			//https://stackoverflow.com/questions/15668309/c-assertion-function-to-check-that-exception-is-thrown
+			Parser P(inputs[i]);
+			BencodeValue result = P.parse_integer();
+		} catch(...)
+		{
+			exceptionThrown = true;
+		}
+		assert(exceptionThrown);
+	}
 }
 void test_bytes_invalid()
 {
@@ -834,12 +863,14 @@ void test_parse_invalid()
 
 int main()
 {
-	std::cout << "test" << std::endl;
+	std::cout << "<test>" << std::endl;
 	test_integers();
 	test_bytes();
 	test_list();
 	test_dict();
 	test_parse();
+	test_integer_invalid();
+	std::cout << "</test>" << std::endl;
 	return 0;
 }
 
