@@ -5,5 +5,5 @@ astyle --style=allman -n *.hpp $astyle_settings
 #cppcheck --enable=all --suppress=missingIncludeSystem --check-level=exhaustive *.cpp
 #cppcheck --enable=all --suppress=missingIncludeSystem --check-level=exhaustive *.hpp
 rm exp_bencoding.out
-g++ -O0 -g3 -std=c++23 -Wall -Wextra -Wpedantic test_bencoding.cpp -o test_bencoding.out
-./test_bencoding.out
+g++ -O0 -g3 -std=c++23 -Wall -Wextra -Wpedantic test_BencodeParser.cpp -o test_BencodeParser.out
+./test_BencodeParser.out
