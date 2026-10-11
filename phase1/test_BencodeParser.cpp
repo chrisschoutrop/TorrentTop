@@ -263,6 +263,10 @@ class test_Parser
 			    i007e       leading zero in integer
 			    i-0e        negative zero
 			    i-3-4e      non-consecutive double -
+			    i1.123e     only integers, not float
+			    i0x27e      only base10
+			    i0b10e      only base10
+			    i1267650600228229401496703205376e   2^100, does not fit in i64
 			*/
 			std::vector<std::string> inputs_strings
 			{
@@ -280,6 +284,10 @@ class test_Parser
 				"i-0e",
 				"i-e",
 				"i-3-4e",
+				"i1.123e",
+				"i0x27e",
+				"i0b10e",
+				"i1267650600228229401496703205376e",
 			};
 			std::vector<std::vector<std::byte>> inputs = convert_strings_to_bytes(inputs_strings);
 
