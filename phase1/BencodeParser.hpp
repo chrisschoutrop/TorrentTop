@@ -69,7 +69,6 @@ struct BencodeValue
 	}
 
 	// TODO: Check if it exists with is_* ?
-	// Currently there can be a nullptr dereference
 	const Integer& get_int() const
 	{
 		return std::get<Integer>(data);

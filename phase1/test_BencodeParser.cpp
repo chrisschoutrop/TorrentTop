@@ -2,15 +2,15 @@
 
 std::vector<std::byte> convert_string_to_bytes(const std::string& inputs_string)
 {
-	std::vector<std::byte> inputs;
-	inputs.resize(inputs_string.size());
+	std::vector<std::byte> bytes;
+	bytes.resize(inputs_string.size());
 
 	for(uint64_t i_char = 0; i_char < inputs_string.size(); ++i_char)
 	{
-		inputs[i_char] = static_cast<std::byte>(inputs_string[i_char]);
+		bytes[i_char] = static_cast<std::byte>(inputs_string[i_char]);
 	}
 
-	return inputs;
+	return bytes;
 }
 std::vector<std::vector<std::byte>> convert_strings_to_bytes(const std::vector<std::string>& inputs_strings)
 {
