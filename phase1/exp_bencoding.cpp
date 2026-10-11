@@ -10,6 +10,7 @@
 #include <variant>
 #include <optional>
 #include <random>
+#include <algorithm>
 /*
 Notes from Dave 27-Sep-2026:
 [X] Why isn't input just a field in the parser?
@@ -312,7 +313,7 @@ class Parser
 			    "i0e"       ->  0
 			    "i42e"      ->  42
 			    "i-42e"     ->  -42
-			For now parses a SINGLE integer, e.g. NOT i0ei42e
+			Parses a SINGLE integer, e.g. NOT i0ei42e
 			*/
 			/*
 			Idea:
@@ -320,89 +321,56 @@ class Parser
 			- Skip everything until we hit 'e'
 			- Get the string view of whatever is in between, pass to std::to_int() or whatever
 			*/
-			int64_t start = m_pos + 1; //+1 because we have to skip the 'i'
-			int64_t end = start;
-			int64_t count_digit_or_minus = 0;
-			int64_t count_minus = 0;
-
 			if(peek() != std::byte('i'))
 			{
-				throw std::invalid_argument("#d213b1");
+				throw std::invalid_argument("#d213b1 i not found");
 			}
 
-			for(uint64_t i = start; i < m_input.size(); ++i)
+			consume();
+			const auto it_start = m_input.begin() + m_pos;
+			const auto it_end = std::find(it_start, m_input.end(), std::byte('e'));
+
+			if(it_end == m_input.end())
 			{
-				/*
-				This SHOULD only be i,e,0,1,2,3,4,5,6,7,8,9,-
-				*/
-				std::byte current_character = m_input[i];
-
-				if(current_character == std::byte('e'))
-				{
-					end = i;
-					break;
-				}
-				else if(locale_proof_isdigit(std::to_integer<uint8_t>(current_character)) || current_character == std::byte('-'))
-				{
-					count_digit_or_minus++;
-
-					if(current_character == std::byte('-'))
-					{
-						count_minus++;
-					}
-
-					continue;
-				}
-				else
-				{
-					throw std::invalid_argument("#c2c85a");
-				}
+				throw std::invalid_argument("#206d05 e not found");
 			}
 
-			if(count_digit_or_minus == 0)
+			size_t length = std::distance(it_start, it_end);
+
+			if(it_end == m_input.end())
 			{
-				throw std::invalid_argument("#286991");
+				throw std::invalid_argument("#5619cc integer of length 0");
 			}
 
-			if(count_minus > 1)
-			{
-				throw std::invalid_argument("#4f5f1e");
-			}
-
-			if(count_minus == 1 && peek(1) != std::byte('-'))
-			{
-				throw std::invalid_argument("#631f19");
-			}
-
-			if(end - start > 1 && peek(1) == std::byte('0'))
-			{
-				throw std::invalid_argument("#db14b4");
-			}
-
-			if(end - start > 1 && peek(1) == std::byte('-'))
-			{
-				// TODO: Idk if correct or off by 1
-				if(peek(2) == std::byte('-'))
-				{
-					throw std::invalid_argument("#dc88fa");
-				}
-
-				if(peek(2) == std::byte('0'))
-				{
-					throw std::invalid_argument("#22f637");
-				}
-			}
-
-			m_pos = end;
+			m_pos += length;
 			consume(); // Consume the e
 			Integer res;
-			const char* start_ptr = reinterpret_cast<const char*>(m_input.data() + start);
-			const char* end_ptr = reinterpret_cast<const char*>(m_input.data() + end);
+			const char* start_ptr = reinterpret_cast<const char*>(&(*it_start));
+			const char* end_ptr = reinterpret_cast<const char*>(&(*it_end));
 			auto [ptr, ec] = std::from_chars(start_ptr, end_ptr, res);
 
 			if(ec != std::errc() || ptr != end_ptr)
 			{
-				throw std::runtime_error("#7defba");
+				throw std::runtime_error("#7defba from_chars failed");
+			}
+
+			// Spec checks that do parse with from_chars()
+			if(length > 1)
+			{
+				if(start_ptr[0] == '-' && start_ptr[1] == '-')
+				{
+					throw std::runtime_error("#148aea double - in integer");
+				}
+
+				if(start_ptr[0] == '-' && start_ptr[1] == '0')
+				{
+					throw std::runtime_error("#148aea -0 in integer");
+				}
+
+				if(start_ptr[0] == '0')
+				{
+					throw std::runtime_error("#6721cd leading 0 in integer");
+				}
 			}
 
 			return BencodeValue(res);
@@ -811,6 +779,8 @@ void test_integer_invalid()
 		"il42e",
 		"i007e",
 		"i-0e",
+		"i-e",
+		"i-3-4e",
 	};
 	std::vector<std::vector<std::byte>> inputs = convert_strings_to_bytes(inputs_strings);
 
@@ -822,6 +792,7 @@ void test_integer_invalid()
 			//https://stackoverflow.com/questions/15668309/c-assertion-function-to-check-that-exception-is-thrown
 			Parser P(inputs[i]);
 			BencodeValue result = P.parse_integer();
+			std::cout << "#e29e5d: " << inputs_strings[i] << std::endl;
 		} catch(...)
 		{
 			exceptionThrown = true;
