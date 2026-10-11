@@ -9,6 +9,7 @@
 #include <span>
 #include <variant>
 #include <optional>
+#include <random>
 /*
 Notes from Dave 27-Sep-2026:
 [X] Why isn't input just a field in the parser?
@@ -809,13 +810,42 @@ void test_parse()
 	}
 }
 
-void test_parse_MCT()
+void test_random_inputs()
 {
 	/*
 	Idea:
 	If we have an encoder too we can encode random data
 	and see if we break anything.
+
+	For now just check that it doesn't segfault or similar
 	*/
+	static volatile size_t sink = 0;
+	const int64_t N_test = 100;
+	std::mt19937 rng(42);
+	std::poisson_distribution<int64_t> dist_length(1000);
+	std::uniform_int_distribution<u_int8_t> dist_bytes(0x0, 0xff);
+
+	for(int64_t i = 0; i < N_test; ++i)
+	{
+		std::vector<std::byte> input(dist_length(rng));
+
+		for (size_t j = 0; j < input.size(); j++)
+		{
+			input[j] = static_cast<std::byte>(dist_bytes(rng));
+		}
+
+		try
+		{
+			Parser P(input);
+			BencodeValue result = P.parse();
+			sink = sink + sizeof(result);
+		}
+		catch(...)
+		{
+			;
+		}
+
+	}
 }
 
 void test_integer_invalid()
@@ -992,6 +1022,7 @@ int main()
 	test_integer_invalid();
 	test_bytes_invalid();
 	test_parse_invalid();
+	test_random_inputs();
 	std::cout << "</test>" << std::endl;
 	return 0;
 }
