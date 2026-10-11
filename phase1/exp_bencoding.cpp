@@ -877,13 +877,56 @@ void test_parse_invalid()
 	    di1e1:ae                    non-byte-string key (integer)
 	    dl4:spame1:ae               non-byte-string key (list)
 
-	    i42e                        leading whitespace
+	     i42e                       leading whitespace
 	    x42e                        unknown type marker
 
 	    i007e                       leading zero in integer
 	    i-0e                        negative zero
 	    00:abc                      leading zero in byte length
 	*/
+	std::vector<std::string> inputs_strings
+	{
+		"",
+		"l",
+		"d",
+		"li1e",
+		"l4:spam",
+		"l4:spami1e",
+		"e",
+		"d3:bar",
+		"d3:bar3:spam",
+		"i42ee",
+		"i42e42",
+		"4:spame",
+		"lee",
+		"1:ab",
+		"d3:bar3:spamee",
+		"d4:spam3:bar4:lang2:ene",
+		"d1:ai0e1:ai1e",
+		"di1e1:ae",
+		"dl4:spame1:ae",
+		" i42e",
+		"x42e",
+		"i007e",
+		"i-0e",
+		"00:abc",
+	};
+	std::vector<std::vector<std::byte>> inputs = convert_strings_to_bytes(inputs_strings);
+
+	for(uint64_t i = 0; i < inputs.size(); ++i)
+	{
+		bool exceptionThrown = false;
+		try
+		{
+			//https://stackoverflow.com/questions/15668309/c-assertion-function-to-check-that-exception-is-thrown
+			Parser P(inputs[i]);
+			BencodeValue result = P.parse();
+		} catch(...)
+		{
+			exceptionThrown = true;
+		}
+		assert(exceptionThrown);
+	}
 }
 
 int main()
@@ -895,6 +938,8 @@ int main()
 	test_dict();
 	test_parse();
 	test_integer_invalid();
+	test_bytes_invalid();
+	test_parse_invalid();
 	std::cout << "</test>" << std::endl;
 	return 0;
 }
