@@ -214,6 +214,8 @@ class Parser
 {
 	public:
 		int64_t m_pos = 0;
+		int64_t m_recursion_depth = 0;
+		const int64_t m_max_recursion_depth = 1024;
 
 		// std::span/view such that the Parser does not
 		// copy everything, and we can view in chunks
@@ -237,6 +239,13 @@ class Parser
 		}
 		BencodeValue parse_value()
 		{
+			m_recursion_depth++;
+
+			if(m_recursion_depth > m_max_recursion_depth)
+			{
+				throw std::runtime_error("#9d10dd: max recursion depth reached in parse_value()");
+			}
+
 			std::byte current_character = peek();
 
 			if (current_character == std::byte('i'))
@@ -403,25 +412,19 @@ class Parser
 				throw std::runtime_error("#c9f1aa");
 			}
 
-			Bytes res;
 
 			if(integer_part < 0)
 			{
 				throw std::invalid_argument("#6902a2");
 			}
 
-			/*
-			I suspect we can also do this with a memcpy and copy exactly integer_part bytes
-			but this also smells like some horrible security problem in the making.
-			We have to check the sizes.
-			*/
 			//if(end_copy>m_input.end()) // Doesn't work since if end_copy is past the end it's UB
 			if(integer_part > static_cast<int64_t>(m_input.size()) - m_pos)
 			{
 				throw std::invalid_argument("#405932");
 			}
 
-			res.resize(integer_part);
+			Bytes res(integer_part);
 
 			auto start_copy = m_input.begin() + m_pos;
 			auto end_copy = m_input.begin() + m_pos + integer_part;
