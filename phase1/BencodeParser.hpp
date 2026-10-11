@@ -95,31 +95,38 @@ struct BencodeValue
 	};
 	template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>;
 
-	void print_node(const BencodeValue& node)
+	friend std::ostream& operator<< (std::ostream& stream, const BencodeValue& node)
 	{
 		std::visit(overloaded
 		{
 			[&](int64_t val)
 			{
-				std::cout << "Integer: " << val << "\n";
+				stream << "Integer: " << val << "\n";
 			},
 			[&](const Bytes & bytes)
 			{
-				std::cout << "Bytes of size: " << bytes.size() << "\n";
+				stream << "Bytes of size: " << bytes.size() << "\n";
 			},
 			[&](const List & list)
 			{
-				std::cout << "List of size: " << list.size() << "\n";
+				stream << "List of size: " << list.size() << "\n";
 
-				for (const auto& elem : list) print_node(elem);
+				for (const auto& elem : list)
+				{
+					stream << elem;
+				}
 			},
 			[&](const Dict & dict)
 			{
-				std::cout << "Dict with " << dict.size() << " keys\n";
+				stream << "Dict with " << dict.size() << " keys\n";
 
-				for (const auto& [k, v] : dict) print_node(v);
+				for (const auto& [k, v] : dict)
+				{
+					stream << v;
+				}
 			}
 		}, node.data);
+		return stream;
 	}
 };
 
@@ -326,7 +333,7 @@ class Parser
 
 			size_t length = std::distance(it_start, it_end);
 
-			if(it_end == m_input.end())
+			if(length == 0)
 			{
 				throw std::invalid_argument("#5619cc: integer of length 0");
 			}
