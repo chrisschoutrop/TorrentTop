@@ -251,29 +251,35 @@ class Parser
 			    fails loudly instead — and add <stdexcept> if it doesn't come in transitively.
 			*/
 			std::byte current_character = peek();
+			BencodeValue result = {};
 
 			if(current_character == std::byte('i'))
 			{
-				return parse_integer();
+				result = parse_integer();
 			}
 			else if(locale_proof_isdigit(std::to_integer<uint8_t>(current_character)))
 			{
-				return parse_bytes();
+				result = parse_bytes();
 			}
 			else if(current_character == std::byte('l'))
 			{
-				return parse_list();
+				result = parse_list();
 			}
 			else if(current_character == std::byte('d'))
 			{
-				return parse_dict();
+				result = parse_dict();
 			}
 			else
 			{
 				throw std::invalid_argument("#34bc24");
 			}
 
-			return {};
+			if((size_t)m_pos != m_input.size())
+			{
+				throw std::invalid_argument("#48a337");
+			}
+
+			return result;
 		}
 		std::byte peek(const int64_t offset = 0)
 		{
@@ -301,16 +307,10 @@ class Parser
 			- Skip everything until we hit 'e'
 			- Get the string view of whatever is in between, pass to std::to_int() or whatever
 			*/
-			/*
-			Malformed input check ideas
-			"i42" (no e)
-			"42" (no :) in parse_bytes
-			"i-e"
-			"i042e" (leading zero)  should parse fine as 42, but bencode says invalid
-			*/
 			int64_t start = m_pos + 1; //+1 because we have to skip the 'i'
 			int64_t end = start;
 			int64_t count_digit_or_minus = 0;
+			int64_t count_minus = 0;
 
 			if(peek() != std::byte('i'))
 			{
@@ -324,7 +324,6 @@ class Parser
 				*/
 				std::byte current_character = m_input[i];
 
-				// TODO: Do this with std::find and a lambda instead?
 				if(current_character == std::byte('e'))
 				{
 					end = i;
@@ -333,6 +332,12 @@ class Parser
 				else if(locale_proof_isdigit(std::to_integer<uint8_t>(current_character)) || current_character == std::byte('-'))
 				{
 					count_digit_or_minus++;
+
+					if(current_character == std::byte('-'))
+					{
+						count_minus++;
+					}
+
 					continue;
 				}
 				else
@@ -344,6 +349,35 @@ class Parser
 			if(count_digit_or_minus == 0)
 			{
 				throw std::invalid_argument("#286991");
+			}
+
+			if(count_minus > 1)
+			{
+				throw std::invalid_argument("#4f5f1e");
+			}
+
+			if(count_minus == 1 && peek(1) != std::byte('-'))
+			{
+				throw std::invalid_argument("#631f19");
+			}
+
+			if(end - start > 1 && peek(1) == std::byte('0'))
+			{
+				throw std::invalid_argument("#db14b4");
+			}
+
+			if(end - start > 1 && peek(1) == std::byte('-'))
+			{
+				// TODO: Idk if correct or off by 1
+				if(peek(2) == std::byte('-'))
+				{
+					throw std::invalid_argument("#dc88fa");
+				}
+
+				if(peek(2) == std::byte('0'))
+				{
+					throw std::invalid_argument("#22f637");
+				}
 			}
 
 			m_pos = end + 1; // Consume the e
@@ -500,6 +534,20 @@ class Parser
 			{
 				Bytes key = *parse_bytes().as_bytes();
 				std::byte current_character = peek();
+
+				// Check if key is not duplicate
+				if(res.contains(key))
+				{
+					throw std::invalid_argument("#a5546a");
+				}
+
+				// Check if key is sorted
+				if( res.size() > 0 &&
+				        std::prev(res.end())->first >= key
+				  )
+				{
+					throw std::invalid_argument("#280070");
+				}
 
 				if(current_character == std::byte('i'))
 				{
@@ -743,7 +791,7 @@ void test_parse()
 	    d1:ad3:barli1ei2ee3:bazd2:xxi0eeee      {"a": {"bar": [1, 2], "baz": {"xx": 277}}}
 	*/
 	{
-		std::string input_string = "d1:ad3:barli1ei2ee3:bazd2:xxi277eeee ";
+		std::string input_string = "d1:ad3:barli1ei2ee3:bazd2:xxi277eeee";
 		std::vector<std::byte> input = convert_string_to_bytes(input_string);
 
 		Parser P(input);
@@ -783,6 +831,8 @@ void test_integer_invalid()
 	    i4 2e       whitespace inside
 	    i42Ee       uppercase E
 	    il42e       non-digit after i
+	    i007e       leading zero in integer
+	    i-0e        negative zero
 	*/
 	std::vector<std::string> inputs_strings
 	{
@@ -796,6 +846,8 @@ void test_integer_invalid()
 		"i4 2e",
 		"i42Ee",
 		"il42e",
+		"i007e",
+		"i-0e",
 	};
 	std::vector<std::vector<std::byte>> inputs = convert_strings_to_bytes(inputs_strings);
 
@@ -845,6 +897,7 @@ void test_bytes_invalid()
 			//https://stackoverflow.com/questions/15668309/c-assertion-function-to-check-that-exception-is-thrown
 			Parser P(inputs[i]);
 			BencodeValue result = P.parse_bytes();
+			std::cout << "#46188c: " << inputs_strings[i] << std::endl;
 		} catch(...)
 		{
 			exceptionThrown = true;
@@ -880,8 +933,6 @@ void test_parse_invalid()
 	     i42e                       leading whitespace
 	    x42e                        unknown type marker
 
-	    i007e                       leading zero in integer
-	    i-0e                        negative zero
 	    00:abc                      leading zero in byte length
 	*/
 	std::vector<std::string> inputs_strings
@@ -921,6 +972,7 @@ void test_parse_invalid()
 			//https://stackoverflow.com/questions/15668309/c-assertion-function-to-check-that-exception-is-thrown
 			Parser P(inputs[i]);
 			BencodeValue result = P.parse();
+			std::cout << "#0a9e8b: " << inputs_strings[i] << std::endl;
 		} catch(...)
 		{
 			exceptionThrown = true;
