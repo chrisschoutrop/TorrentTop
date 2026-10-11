@@ -156,21 +156,21 @@ struct BencodeValue
 
 	// TODO: Check if it exists with is_* ?
 	// Currently there can be a nullptr dereference
-	Integer get_int() const
+	const Integer& get_int() const
 	{
-		return *std::get_if<Integer>(&data);
+		return std::get<Integer>(data);
 	}
-	Bytes get_bytes() const
+	const Bytes& get_bytes() const
 	{
-		return *std::get_if<Bytes>(&data);
+		return std::get<Bytes>(data);
 	}
-	List get_list()   const
+	const List& get_list()   const
 	{
-		return *std::get_if<List>(&data);
+		return std::get<List>(data);
 	}
-	Dict get_dict()   const
+	const Dict& get_dict()   const
 	{
-		return *std::get_if<Dict>(&data);
+		return std::get<Dict>(data);
 	}
 };
 
@@ -729,11 +729,11 @@ void test_dict()
 		expected_key = convert_string_to_bytes("bar");
 		expected_val = convert_string_to_bytes("spam");
 		assert(result.get_dict().contains(expected_key));
-		assert(result.get_dict()[expected_key].get_bytes() == expected_val);
+		assert(result.get_dict().at(expected_key).get_bytes() == expected_val);
 		expected_key = convert_string_to_bytes("lang");
 		expected_val = convert_string_to_bytes("en");
 		assert(result.get_dict().contains(expected_key));
-		assert(result.get_dict()[expected_key].get_bytes() == expected_val);
+		assert(result.get_dict().at(expected_key).get_bytes() == expected_val);
 	}
 	{
 		std::string input_string = "d3:fooi-1e4:spamli1ei2eee";
@@ -747,10 +747,10 @@ void test_dict()
 		expected_key2 = convert_string_to_bytes("spam");
 		assert(result.get_dict().contains(expected_key1));
 		assert(result.get_dict().contains(expected_key2));
-		assert(result.get_dict()[expected_key1].get_int() == -1);
-		assert(result.get_dict()[expected_key2].as_list() != nullptr);
-		assert(result.get_dict()[expected_key2].get_list()[0].get_int() == 1);
-		assert(result.get_dict()[expected_key2].get_list()[1].get_int() == 2);
+		assert(result.get_dict().at(expected_key1).get_int() == -1);
+		assert(result.get_dict().at(expected_key2).as_list() != nullptr);
+		assert(result.get_dict().at(expected_key2).get_list()[0].get_int() == 1);
+		assert(result.get_dict().at(expected_key2).get_list()[1].get_int() == 2);
 	}
 }
 
@@ -770,14 +770,14 @@ void test_parse()
 		BencodeValue result = P.parse();
 		assert(result.get_dict().size() == 1);
 		assert(result.get_dict().contains(convert_string_to_bytes("a")));
-		assert(result.get_dict()[convert_string_to_bytes("a")].get_dict().contains(convert_string_to_bytes("bar")));
-		assert(result.get_dict()[convert_string_to_bytes("a")].get_dict().contains(convert_string_to_bytes("baz")));
-		assert(result.get_dict()[convert_string_to_bytes("a")].get_dict()[convert_string_to_bytes("bar")].as_list() != nullptr);
-		assert(result.get_dict()[convert_string_to_bytes("a")].get_dict()[convert_string_to_bytes("bar")].get_list()[0].get_int() == 1);
-		assert(result.get_dict()[convert_string_to_bytes("a")].get_dict()[convert_string_to_bytes("bar")].get_list()[1].get_int() == 2);
-		assert(result.get_dict()[convert_string_to_bytes("a")].get_dict()[convert_string_to_bytes("baz")].as_dict() != nullptr);
-		assert(result.get_dict()[convert_string_to_bytes("a")].get_dict()[convert_string_to_bytes("baz")].get_dict().contains(convert_string_to_bytes("xx")));
-		assert(result.get_dict()[convert_string_to_bytes("a")].get_dict()[convert_string_to_bytes("baz")].get_dict()[convert_string_to_bytes("xx")].get_int() == 277);
+		assert(result.get_dict().at(convert_string_to_bytes("a")).get_dict().contains(convert_string_to_bytes("bar")));
+		assert(result.get_dict().at(convert_string_to_bytes("a")).get_dict().contains(convert_string_to_bytes("baz")));
+		assert(result.get_dict().at(convert_string_to_bytes("a")).get_dict().at(convert_string_to_bytes("bar")).as_list() != nullptr);
+		assert(result.get_dict().at(convert_string_to_bytes("a")).get_dict().at(convert_string_to_bytes("bar")).get_list()[0].get_int() == 1);
+		assert(result.get_dict().at(convert_string_to_bytes("a")).get_dict().at(convert_string_to_bytes("bar")).get_list()[1].get_int() == 2);
+		assert(result.get_dict().at(convert_string_to_bytes("a")).get_dict().at(convert_string_to_bytes("baz")).as_dict() != nullptr);
+		assert(result.get_dict().at(convert_string_to_bytes("a")).get_dict().at(convert_string_to_bytes("baz")).get_dict().contains(convert_string_to_bytes("xx")));
+		assert(result.get_dict().at(convert_string_to_bytes("a")).get_dict().at(convert_string_to_bytes("baz")).get_dict().at(convert_string_to_bytes("xx")).get_int() == 277);
 	}
 }
 
