@@ -16,6 +16,7 @@ Ideas:
 - Develop something complex that's not im Fortran with 40 years of legacy
 - Develop small experiments first and then combine with main code, this way we figure out the implementation without dragging along large codebase
 - Do something other than HPC to gain new insights and trickery
+- Do experiment for what to do with networking. Either Boost Asio, #b1e50c, QT,  Zero MQ.
 
 # 📝 The plan 📝
 ## Phase 1 (Data and parsing)
