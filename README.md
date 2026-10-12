@@ -21,9 +21,9 @@ Ideas:
 ## Phase 1 (Data and parsing)
 - ✅ Bencode parsing
 - Load torrent files
-- SHA-1 hash for verifying integrity of downloaded pieces
+- SHA-1 hash for verifying integrity of downloaded pieces (likely Boost Hash2)
 
-## Phase 2 (Networking 1)
+## Phase 2 (Networking 1) (Boost Asio)
 - HTTP interface for making GET requests to trackers
 - Implement tracker protocol
 - Peer list parser
@@ -37,7 +37,7 @@ Ideas:
 
 ## Phase 4 (Everything else core related)
 - File I/O
-- Stategy for picking which pieces to download
+- Stategy for picking which pieces to download (Start with random, or first available, or least available)
 - Whatever we cannot forsee, but is required to make the main functionality work
 
 ## Phase 5 (Interface)
