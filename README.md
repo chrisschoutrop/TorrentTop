@@ -22,7 +22,8 @@ Ideas:
 ## Phase 1 (Data and parsing)
 - ✅ Bencode parsing
 - ✅ Load torrent file
-- SHA-1 hash for verifying integrity of downloaded pieces (likely Boost Hash2)
+- SHA-1/SHA-256 hash for verifying integrity of downloaded pieces (likely Boost Hash2)
+- Compute info hash
 
 ## Phase 2 (Networking 1) (Boost Asio)
 - HTTP interface for making GET requests to trackers
