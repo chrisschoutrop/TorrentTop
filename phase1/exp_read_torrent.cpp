@@ -37,6 +37,7 @@ int main()
 	std::cout << result << std::endl;
 
     /*
+    From Torrent decoder:
     We expect this:
     Name	archlinux-2026.10.01-x86_64.iso
     Info Hash	9b521219bc48550140a666f74a29048ed78e933b
@@ -49,5 +50,9 @@ int main()
 
     Files	
         archlinux-2026.10.01-x86_64.iso
+
+    We have to hash this part to get the info hash:
+    https://stackoverflow.com/questions/28348678/what-exactly-is-the-info-hash-in-a-torrent-file
+    
     */
 }
