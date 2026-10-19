@@ -8,6 +8,7 @@
 #include <span>
 
 // Boost.Hash2 headers
+#include "boost/hash2/digest.hpp"
 #include "boost/hash2/sha1.hpp"
 #include "boost/hash2/sha2.hpp"
 
@@ -31,9 +32,7 @@ int main()
 
 	// Hash2 accepts raw pointer + byte count or a byte span
 	sha1_hasher.update(data_span.data(), data_span.size());
-
-	// obtain result as std::array<unsigned char, 20>
-	auto sha1_digest = sha1_hasher.result();
+	boost::hash2::digest<20> sha1_digest = sha1_hasher.result();
 
 	// -------------------------------------------------------------
 	// 2. SHA-256 (BitTorrent v2 Piece / Merkle Root Verification)
@@ -41,10 +40,7 @@ int main()
 	boost::hash2::sha2_256 sha256_hasher;
 
 	sha256_hasher.update(data_span.data(), data_span.size());
-
-	// obtain result as std::array<unsigned char, 32>
-	auto sha256_digest = sha256_hasher.result();
-
+	boost::hash2::digest<32> sha256_digest = sha256_hasher.result();
 
 	std::cout << "sha1_digest:   " << sha1_digest << std::endl;
 	std::cout << "sha256_digest: " << sha256_digest << std::endl;
