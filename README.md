@@ -21,7 +21,7 @@ Ideas:
 # 📝 The plan 📝
 ## Phase 1 (Data and parsing)
 - ✅ Bencode parsing
-- Load torrent files
+- ✅ Load torrent file
 - SHA-1 hash for verifying integrity of downloaded pieces (likely Boost Hash2)
 
 ## Phase 2 (Networking 1) (Boost Asio)
