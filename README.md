@@ -19,7 +19,7 @@ Ideas:
 - Do experiment for what to do with networking. Either Boost Asio, #b1e50c, QT,  Zero MQ.
 
 # 📝 The plan 📝
-## Phase 1 (Data and parsing)
+## ✅ Phase 1 (Data and parsing)
 - ✅ Bencode parsing
 - ✅ Compute SHA-1 info hash for the Arch Linux .torrent file
 
