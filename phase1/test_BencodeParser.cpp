@@ -1,5 +1,7 @@
 #include "BencodeParser.hpp"
 
+#include <algorithm>
+
 class test_Parser
 {
 	public:
@@ -37,6 +39,15 @@ class test_Parser
 			}
 			return inputs;
 		}
+
+		static bool span_equals_string(std::span<const std::byte> span, const std::string& expected)
+		{
+			return std::ranges::equal(span, expected, [](const std::byte a, const char b)
+			{
+				return (a == static_cast<std::byte>(b));
+			});
+		}
+
 
 		static void test_integers()
 		{
@@ -244,6 +255,28 @@ class test_Parser
 				assert(result.get_dict().at(convert_string_to_bytes("a")).get_dict().at(convert_string_to_bytes("baz")).as_dict() != nullptr);
 				assert(result.get_dict().at(convert_string_to_bytes("a")).get_dict().at(convert_string_to_bytes("baz")).get_dict().contains(convert_string_to_bytes("xx")));
 				assert(result.get_dict().at(convert_string_to_bytes("a")).get_dict().at(convert_string_to_bytes("baz")).get_dict().at(convert_string_to_bytes("xx")).get_int() == 277);
+
+				assert(span_equals_string(result.raw, input_string));
+
+				// Value of key "a" -> inner dict
+				const BencodeValue& val_a = result.get_dict().at(convert_string_to_bytes("a"));
+				assert(span_equals_string(val_a.raw, "d3:barli1ei2ee3:bazd2:xxi277eee"));
+
+				// Value of key "bar" -> list [1, 2]
+				const BencodeValue& val_bar = val_a.get_dict().at(convert_string_to_bytes("bar"));
+				assert(span_equals_string(val_bar.raw, "li1ei2ee"));
+
+				// Elements of the list
+				assert(span_equals_string(val_bar.get_list()[0].raw, "i1e"));
+				assert(span_equals_string(val_bar.get_list()[1].raw, "i2e"));
+
+				// Value of key "baz" -> nested dict {"xx": 277}
+				const BencodeValue& val_baz = val_a.get_dict().at(convert_string_to_bytes("baz"));
+				assert(span_equals_string(val_baz.raw, "d2:xxi277ee"));
+
+				// Value of key "xx" -> integer 277
+				const BencodeValue& val_xx = val_baz.get_dict().at(convert_string_to_bytes("xx"));
+				assert(span_equals_string(val_xx.raw, "i277e"));
 			}
 		}
 
