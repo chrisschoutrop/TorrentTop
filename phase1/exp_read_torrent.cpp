@@ -9,7 +9,7 @@
 #include "boost/hash2/sha1.hpp"
 #include "boost/hash2/sha2.hpp"
 
-void compute_info_hash_v1(const std::vector<std::byte>& torrent_bytes)
+boost::hash2::digest<20> compute_info_hash_v1(const std::vector<std::byte>& torrent_bytes)
 {
 	// 1. Parse the torrent
 	Parser parser(torrent_bytes);
@@ -46,7 +46,7 @@ void compute_info_hash_v1(const std::vector<std::byte>& torrent_bytes)
 	hasher.update(info_raw.data(), info_raw.size());
 	boost::hash2::digest<20> sha1_digest = hasher.result();
 
-	std::cout << to_string(sha1_digest) << std::endl;
+	return sha1_digest;
 }
 
 std::vector<std::byte> readFileData(const std::string& name)
@@ -79,7 +79,8 @@ int main()
 	//Parser P(torrent_bytes);
 	//BencodeValue result = P.parse();
 	//std::cout << result << std::endl;
-	compute_info_hash_v1(torrent_bytes);
+	boost::hash2::digest<20> info_hash = compute_info_hash_v1(torrent_bytes);
+	assert(to_string(info_hash) == "9b521219bc48550140a666f74a29048ed78e933b");
 
 	/*
 	From Torrent decoder:

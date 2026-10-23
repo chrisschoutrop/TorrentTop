@@ -43,8 +43,8 @@ int main()
 	sha256_hasher.update(data_span.data(), data_span.size());
 	boost::hash2::digest<32> sha256_digest = sha256_hasher.result();
 
-	std::cout << "sha1_digest:   " << sha1_digest << std::endl;
-	std::cout << "sha256_digest: " << sha256_digest << std::endl;
+	//std::cout << "sha1_digest:   " << sha1_digest << std::endl;
+	//std::cout << "sha256_digest: " << sha256_digest << std::endl;
 
 	assert(to_string(sha1_digest) == "05e41604b98e52b941e23d093ee5006bb12d5c36");
 	assert(to_string(sha256_digest) == "a41d3b6a2e60c5758f14b0edeb9ddbae8a116c42871232e8d544599a4cbfafa9");
