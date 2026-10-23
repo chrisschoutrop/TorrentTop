@@ -19,13 +19,9 @@ Ideas:
 - Do experiment for what to do with networking. Either Boost Asio, #b1e50c, QT,  Zero MQ.
 
 # 📝 The plan 📝
-## Phase 1 (Data and parsing)
+## ✅ Phase 1 (Data and parsing)
 - ✅ Bencode parsing
-- Reproduce the output from Torrent Decoder for the Arch Linux .torrent file
-    - ✅ Load torrent file
-    - ✅ SHA-1/SHA-256 hash (Boost Hash2)
-    - Compute info hash
-    - Figure out how the rest of the info is stored
+- ✅ Compute SHA-1 info hash for the Arch Linux .torrent file
 
 ## Phase 2 (Networking 1) (Boost Asio)
 - HTTP interface for making GET requests to trackers
