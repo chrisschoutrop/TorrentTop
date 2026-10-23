@@ -31,14 +31,14 @@ struct BencodeValue
 	VariantType data;
 
 	std::span<const std::byte> raw{};
-	
+
 	/*
 	Avoiding empty can be done with setting this =delete
 	in that case we can remove the std::monostate as std::variant
 	by default constructs whatever is first we need it with =default.
 	Having an empty constructor is nice to avoid some code duplication.
 	*/
-	BencodeValue() = default; 
+	BencodeValue() = default;
 	explicit BencodeValue(VariantType v) : data(std::move(v)) {}
 
 	// Checkers
@@ -107,6 +107,10 @@ struct BencodeValue
 	{
 		std::visit(overloaded
 		{
+			[&](std::monostate)
+			{
+				stream << "Empty: " << "\n";
+			},
 			[&](int64_t val)
 			{
 				stream << "Integer: " << val << "\n";
