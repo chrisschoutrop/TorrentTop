@@ -185,6 +185,7 @@ class Parser
 
 			return result;
 		}
+	private:
 		BencodeValue parse_value()
 		{
 			DepthGuard guard(m_recursion_depth);
@@ -307,7 +308,6 @@ class Parser
 
 			return BencodeValue(res);
 		}
-	private:
 		template <std::byte delimiter>
 		requires (delimiter == std::byte(':') || delimiter == std::byte('e'))
 		Integer parse_raw_integer()
