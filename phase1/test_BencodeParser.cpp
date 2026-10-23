@@ -467,9 +467,8 @@ class test_Parser
 #ifndef FUZZER
 int main()
 {
-	std::cout << "<test>" << std::endl;
+	std::cout << "test_BencodeParser.cpp" << std::endl;
 	test_Parser test;
-	std::cout << "</test>" << std::endl;
 	return 0;
 }
 #else

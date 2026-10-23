@@ -4,6 +4,50 @@
 
 #include "BencodeParser.hpp"
 
+// Boost.Hash2 headers
+#include "boost/hash2/digest.hpp"
+#include "boost/hash2/sha1.hpp"
+#include "boost/hash2/sha2.hpp"
+
+void compute_info_hash_v1(const std::vector<std::byte>& torrent_bytes)
+{
+	// 1. Parse the torrent
+	Parser parser(torrent_bytes);
+	BencodeValue root = parser.parse();
+
+	// 2. Root must be a dict
+	if (!root.is_dict())
+	{
+		throw std::runtime_error("#1c231c: Torrent root is not a dict");
+	}
+
+	const Dict& top = root.get_dict();
+
+	// 3. Look up the "info" key
+	Bytes info_key;
+
+	info_key.push_back(static_cast<std::byte>('i'));
+	info_key.push_back(static_cast<std::byte>('n'));
+	info_key.push_back(static_cast<std::byte>('f'));
+	info_key.push_back(static_cast<std::byte>('o'));
+
+	auto it = top.find(info_key);
+
+	if (it == top.end())
+	{
+		throw std::runtime_error("#39d522: Missing \"info\" key in torrent");
+	}
+
+	// 4. The "info" value's .raw span IS the exact byte range to hash
+	const std::span<const std::byte>& info_raw = it->second.raw;
+
+	// 5. Hash it (SHA-1 for v1 torrents)
+	boost::hash2::sha1_160 hasher;
+	hasher.update(info_raw.data(), info_raw.size());
+	boost::hash2::digest<20> sha1_digest = hasher.result();
+
+	std::cout << to_string(sha1_digest) << std::endl;
+}
 
 std::vector<std::byte> readFileData(const std::string& name)
 {
@@ -28,13 +72,14 @@ std::vector<std::byte> readFileData(const std::string& name)
 
 int main()
 {
-	std::cout << "exp_read_torrent" << std::endl;
+	std::cout << "exp_read_torrent.cpp" << std::endl;
 
-	std::vector<std::byte> file = readFileData("archlinux-2026.10.01-x86_64.iso.torrent");
+	std::vector<std::byte> torrent_bytes = readFileData("archlinux-2026.10.01-x86_64.iso.torrent");
 
-	Parser P(file);
-	BencodeValue result = P.parse();
-	std::cout << result << std::endl;
+	//Parser P(torrent_bytes);
+	//BencodeValue result = P.parse();
+	//std::cout << result << std::endl;
+	compute_info_hash_v1(torrent_bytes);
 
 	/*
 	From Torrent decoder:
