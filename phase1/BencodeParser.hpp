@@ -14,6 +14,7 @@
 #include <optional>
 #include <random>
 #include <algorithm>
+#include <stdexcept>
 
 
 // Modern idea using std::variant
@@ -26,12 +27,18 @@ using Dict    = std::map<Bytes, BencodeValue>;
 
 struct BencodeValue
 {
-	using VariantType = std::variant<Integer, Bytes, List, Dict>;
+	using VariantType = std::variant<std::monostate, Integer, Bytes, List, Dict>;
 	VariantType data;
 
 	std::span<const std::byte> raw{};
-
-	BencodeValue() = default;
+	
+	/*
+	Avoiding empty can be done with setting this =delete
+	in that case we can remove the std::monostate as std::variant
+	by default constructs whatever is first we need it with =default.
+	Having an empty constructor is nice to avoid some code duplication.
+	*/
+	BencodeValue() = default; 
 	explicit BencodeValue(VariantType v) : data(std::move(v)) {}
 
 	// Checkers
@@ -330,6 +337,7 @@ class Parser
 			m_pos += length;
 			consume(); // Consume the ending delimiter
 			Integer res;
+			// std::byte is unsigned char; from_chars needs char*
 			const char* start_ptr = reinterpret_cast<const char*>(std::to_address(it_start));
 			const char* end_ptr = reinterpret_cast<const char*>(std::to_address(it_end));
 			auto [ptr, ec] = std::from_chars(start_ptr, end_ptr, res, 10);
