@@ -99,6 +99,5 @@ int main()
 
 	We have to hash this part to get the info hash:
 	https://stackoverflow.com/questions/28348678/what-exactly-is-the-info-hash-in-a-torrent-file
-
 	*/
 }

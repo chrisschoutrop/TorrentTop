@@ -48,7 +48,6 @@ class test_Parser
 			});
 		}
 
-
 		static void test_integers()
 		{
 			std::vector<std::string> inputs_strings
@@ -78,10 +77,6 @@ class test_Parser
 		}
 		static void test_bytes()
 		{
-			/*
-			TODO:
-			\0
-			*/
 			std::vector<std::string> inputs_strings
 			{
 				"0:",
@@ -174,12 +169,6 @@ class test_Parser
 		static void test_dict()
 		{
 			/*
-			TODO
-			- dict in dict testcase?
-			- every time we do get_dict() this copies a Dict, but as_dict has a lot
-			    of * in using it. Maybe it's nice to have something that returns a const&
-			    instead of const* so we get the best of both.
-
 			Ideas for inputs:
 			    de  {}
 			    d3:bar4:spam4:lang2:ene     {"bar": "spam", "lang": "en"}
@@ -234,8 +223,6 @@ class test_Parser
 		static void test_parse()
 		{
 			/*
-			TODO
-
 			Ideas for inputs:
 			    d1:ad3:barli1ei2ee3:bazd2:xxi0eeee      {"a": {"bar": [1, 2], "baz": {"xx": 277}}}
 			*/
