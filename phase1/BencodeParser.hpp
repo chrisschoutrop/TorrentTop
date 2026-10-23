@@ -29,6 +29,8 @@ struct BencodeValue
 	using VariantType = std::variant<Integer, Bytes, List, Dict>;
 	VariantType data;
 
+	std::span<const std::byte> raw{};
+
 	BencodeValue() = default;
 	explicit BencodeValue(VariantType v) : data(std::move(v)) {}
 
@@ -186,29 +188,34 @@ class Parser
 		BencodeValue parse_value()
 		{
 			DepthGuard guard(m_recursion_depth);
+			size_t start_pos = m_pos;
 
 			std::byte current_character = peek();
+			BencodeValue result;
 
 			if (current_character == std::byte('i'))
 			{
-				return parse_integer();
+				result = parse_integer();
 			}
 			else if (current_character == std::byte('l'))
 			{
-				return parse_list();
+				result = parse_list();
 			}
 			else if (current_character == std::byte('d'))
 			{
-				return parse_dict();
+				result = parse_dict();
 			}
 			else if (locale_proof_isdigit(std::to_integer<uint8_t>(current_character)))
 			{
-				return parse_bytes();
+				result = parse_bytes();
 			}
 			else
 			{
 				throw std::invalid_argument("#fecd61");
 			}
+
+			result.raw = m_input.subspan(start_pos, m_pos - start_pos);
+			return result;
 		}
 		BencodeValue parse_integer()
 		{

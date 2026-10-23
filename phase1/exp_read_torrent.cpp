@@ -36,23 +36,23 @@ int main()
 	BencodeValue result = P.parse();
 	std::cout << result << std::endl;
 
-    /*
-    From Torrent decoder:
-    We expect this:
-    Name	archlinux-2026.10.01-x86_64.iso
-    Info Hash	9b521219bc48550140a666f74a29048ed78e933b
-    Created On	Oct 01, 2026, 04:51 PM GMT+2
-    Created By	mktorrent 1.1
-    Comment	Arch Linux 2026.10.01 <https://archlinux.org>
-    Piece Length	512.00 KB
-    Last Piece Length	512.00 KB
-    Trackers	
+	/*
+	From Torrent decoder:
+	We expect this:
+	Name    archlinux-2026.10.01-x86_64.iso
+	Info Hash   9b521219bc48550140a666f74a29048ed78e933b
+	Created On  Oct 01, 2026, 04:51 PM GMT+2
+	Created By  mktorrent 1.1
+	Comment Arch Linux 2026.10.01 <https://archlinux.org>
+	Piece Length    512.00 KB
+	Last Piece Length   512.00 KB
+	Trackers
 
-    Files	
-        archlinux-2026.10.01-x86_64.iso
+	Files
+	    archlinux-2026.10.01-x86_64.iso
 
-    We have to hash this part to get the info hash:
-    https://stackoverflow.com/questions/28348678/what-exactly-is-the-info-hash-in-a-torrent-file
-    
-    */
+	We have to hash this part to get the info hash:
+	https://stackoverflow.com/questions/28348678/what-exactly-is-the-info-hash-in-a-torrent-file
+
+	*/
 }
