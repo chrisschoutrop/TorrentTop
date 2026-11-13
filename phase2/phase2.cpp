@@ -27,8 +27,6 @@ src/
   BencodeParser.hpp          (existing)
   HttpTransport.hpp          (new – generic HTTP)
   TrackerClient.hpp          (new – BitTorrent tracker protocol)
-  TrackerClient.cpp
-  HttpTransport.cpp
 tests/
   test_BencodeParser.cpp     (existing)
   test_HttpTransport.cpp     (mock server or local socketpair)
@@ -38,13 +36,13 @@ exp/
   exp_sha_hash.cpp           (existing)
   exp_announce.cpp           (new – hit a real test tracker)
 
-Phase	What to build	Why
-1	Synchronous HttpTransport (single GET, read full response)	Get DNS + connect + read working
-2	TrackerClient::announce returning parsed peers	End-to-end: one tracker, one request
-3	Handle the two peers encodings (raw 6/18-byte list vs. dict list)	Some trackers use one, some the other
-4	async version (same API, async_connect / async_read + steady_timer for timeout)	Needed when you have 10 trackers to hit concurrently
-5	Multi-tracker: io_context with worker threads, one async request per tracker, collect responses	Real client behaviour
-6	Retry logic, tracker fallback, compact vs non-compact peers	Robustness
+Phase   What to build   Why
+1   Synchronous HttpTransport (single GET, read full response)  Get DNS + connect + read working
+2   TrackerClient::announce returning parsed peers  End-to-end: one tracker, one request
+3   Handle the two peers encodings (raw 6/18-byte list vs. dict list)   Some trackers use one, some the other
+4   async version (same API, async_connect / async_read + steady_timer for timeout) Needed when you have 10 trackers to hit concurrently
+5   Multi-tracker: io_context with worker threads, one async request per tracker, collect responses Real client behaviour
+6   Retry logic, tracker fallback, compact vs non-compact peers Robustness
 
 The exp_announce.cpp would be your first integration test: hit a public test tracker (e.g. http://opentracker.i2p.rocks:6969/announce) with a dummy info hash and print whatever comes back. That validates DNS, HTTP, and bencode decoding in one shot before you build the async machinery.
 

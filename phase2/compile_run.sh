@@ -6,7 +6,10 @@ cppcheck --enable=all --suppress=unmatchedSuppression --suppress=missingIncludeS
 cppcheck --enable=all --suppress=unmatchedSuppression --suppress=missingIncludeSystem --suppress=missingInclude --suppress=unusedFunction --suppress=assertWithSideEffect --check-level=exhaustive *.hpp
 
 rm phase2.out
+rm exp_boost_asio.out
 
 g++ -O0 -g3 -std=c++23 -Wall -Wextra -Wpedantic phase2.cpp -o phase2.out
+g++ -O0 -g3 -std=c++23 -Wall -Wextra -Wpedantic exp_boost_asio.cpp -o exp_boost_asio.out
 
 ./phase2.out
+./exp_boost_asio.out
