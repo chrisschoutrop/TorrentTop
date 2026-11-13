@@ -5,7 +5,7 @@ int main()
 	std::cout << "phase2.cpp" << std::endl;
 }
 /*
-AI suggested way forward (Qwen ❤️):
+AI suggested way forward:
 
 ┌─────────────────────────────────────────────┐
 │  TrackerClient (your domain logic)          │
