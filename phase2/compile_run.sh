@@ -7,9 +7,12 @@ cppcheck --enable=all --suppress=unmatchedSuppression --suppress=missingIncludeS
 
 rm phase2.out
 rm exp_boost_asio.out
+rm exp_announce.out
 
 g++ -O0 -g3 -std=c++23 -Wall -Wextra -Wpedantic phase2.cpp -o phase2.out
 g++ -O0 -g3 -std=c++23 -Wall -Wextra -Wpedantic exp_boost_asio.cpp -o exp_boost_asio.out
+g++ -O0 -g3 -std=c++23 -Wall -Wextra -Wpedantic exp_announce.cpp -o exp_announce.out
 
 ./phase2.out
 ./exp_boost_asio.out
+./exp_announce.out
