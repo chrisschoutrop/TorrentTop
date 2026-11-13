@@ -11,14 +11,20 @@
 class local_test_server
 {
 	public:
-		explicit local_test_server(const std::string& response) : m_response(response), m_io(), m_acceptor(m_io)
+		explicit local_test_server(const std::string& response, const std::string& delayed_part = "", const std::string& bind_address = "127.0.0.1") : m_response(response), m_delayed_part(delayed_part), m_io(), m_acceptor(m_io)
 		{
 			boost::system::error_code ec;
 
-			m_acceptor.open(boost::asio::ip::tcp::v4(), ec);
+			const auto addr = boost::asio::ip::make_address(bind_address, ec);
+			assert(!ec);
+
+			m_acceptor.open(addr.is_v6() ? boost::asio::ip::tcp::v6() : boost::asio::ip::tcp::v4(), ec);
 			assert(!ec);
 
 			m_acceptor.set_option(boost::asio::socket_base::reuse_address(true));
+			m_acceptor.bind(boost::asio::ip::tcp::endpoint(addr, 0), ec);
+			assert(!ec);
+
 			m_acceptor.listen(1, ec);
 			assert(!ec);
 
@@ -34,6 +40,8 @@ class local_test_server
 
 		~local_test_server()
 		{
+			boost::system::error_code ec;
+			m_acceptor.close(ec); // unblock a pending accept() so join() cannot hang on test failure
 			if (m_thread.joinable())
 			{
 				m_thread.join();
@@ -43,6 +51,11 @@ class local_test_server
 		const std::string& port() const
 		{
 			return m_port;
+		}
+
+		const std::string& last_request() const
+		{
+			return m_request;
 		}
 
 	private:
@@ -55,7 +68,7 @@ class local_test_server
 
 			if (ec)
 			{
-				return;
+				return; // acceptor closed in the destructor, or no client: nothing to serve
 			}
 
 			std::string request;
@@ -73,17 +86,29 @@ class local_test_server
 				request.append(buf, n);
 			}
 
+			m_request = request; // capture the raw request for assertions (Host header etc.)
+
 			boost::system::error_code send_ec;
 			boost::asio::write(socket, boost::asio::buffer(m_response), send_ec);
+
+			if (!m_delayed_part.empty())
+			{
+				// Second write after a short delay: the client must keep reading until EOF.
+				std::this_thread::sleep_for(std::chrono::milliseconds(10));
+				boost::system::error_code delayed_ec;
+				boost::asio::write(socket, boost::asio::buffer(m_delayed_part), delayed_ec);
+			}
 
 			socket.shutdown(boost::asio::ip::tcp::socket::shutdown_both, ec);
 			socket.close(ec);
 		}
 
 		std::string m_response;
+		std::string m_delayed_part;
 		boost::asio::io_context m_io;
 		boost::asio::ip::tcp::acceptor m_acceptor;
 		std::string m_port;
+		std::string m_request;
 		std::thread m_thread;
 };
 
@@ -98,6 +123,8 @@ class test_HttpTransport
 			test_header_lookup();
 			test_url_scheme_validation();
 			test_get_local_server();
+			test_get_no_content_length_split_writes();
+			test_url_ipv6_and_port();
 			test_get_connection_refused();
 			test_max_response_size();
 			test_parse_random_inputs();
@@ -190,6 +217,7 @@ class test_HttpTransport
 			    200 OK ...                  status line does not start with HTTP/
 			    HTTP/1.1                    status line without a code
 			    HTTP/1.1 abc def            non-numeric status code
+			    Transfer-Encoding: chunked  unsupported framing -> runtime_error
 			*/
 			std::vector<std::string> inputs_strings
 			{
@@ -198,6 +226,7 @@ class test_HttpTransport
 				"200 OK\r\nX-Y: z\r\n\r\nbody",
 				"HTTP/1.1\r\nX-Y: z\r\n\r\nb",
 				"HTTP/1.1 abc def\r\n\r\nb",
+				"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nContent-Length: 5\r\n\r\nhello",
 			};
 
 			for (uint64_t i = 0; i < inputs_strings.size(); ++i)
@@ -244,6 +273,14 @@ class test_HttpTransport
 			{
 				auto cl = content_length_of_head("Content-Length: abc");
 				assert(!cl.has_value());
+			}
+			{
+				auto cl = content_length_of_head("X-Content-Length: 10");
+				assert(!cl.has_value()); // must match the header name at line start, not as a substring
+			}
+			{
+				auto cl = content_length_of_head("Content-Length: 42abc");
+				assert(!cl.has_value()); // trailing garbage -> reject
 			}
 		}
 
@@ -363,6 +400,48 @@ class test_HttpTransport
 				assert(resp.status_code == 200);
 				assert(resp.body == "ok");
 			}
+		}
+
+		static void test_get_no_content_length_split_writes()
+		{
+			/*
+			Server without Content-Length sends headers and body in two separate write() calls
+			with a 10 ms delay between them: the client must keep reading until EOF (not stop
+			after the first read) and return the full body.
+			*/
+			local_test_server server("HTTP/1.1 200 OK\r\n"
+			                         "Server: test\r\n"
+			                         "\r\n",
+			                         "hello world");
+
+			HttpTransport http;
+			HttpResponse resp = http.get("127.0.0.1", server.port(), "/split");
+
+			assert(resp.status_code == 200);
+			assert(resp.body == "hello world");
+		}
+
+		static void test_url_ipv6_and_port()
+		{
+			/*
+			URL overload with a bracketed IPv6 literal and a non-default port:
+			    http://[::1]:<port>/announce  -> host "::1", port <port>, path "/announce"
+			The Host header must keep the brackets and include the port (RFC 7230).
+			*/
+			local_test_server server("HTTP/1.1 200 OK\r\n"
+			                         "Content-Length: 2\r\n"
+			                         "\r\n"
+			                         "ok",
+			                         "",
+			                         "::1");
+
+			HttpTransport http;
+			const std::string url = "http://[::1]:" + server.port() + "/announce";
+			HttpResponse resp = http.get(url);
+
+			assert(resp.status_code == 200);
+			assert(resp.body == "ok");
+			assert(server.last_request().find("Host: [::1]:" + server.port()) != std::string::npos);
 		}
 
 		static void test_get_connection_refused()

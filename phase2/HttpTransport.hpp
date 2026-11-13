@@ -70,20 +70,51 @@ timeval to_timeval(std::chrono::milliseconds ms)
 std::optional<std::size_t> content_length_of_head(const std::string& head)
 {
 	const auto lowered = to_lower(head);
-	const auto pos = lowered.find("content-length:");
+	std::size_t pos = 0;
 
-	if (pos == std::string::npos)
+	while (true)
 	{
-		return std::nullopt;
-	}
+		pos = lowered.find("content-length:", pos);
 
-	try
-	{
-		return static_cast<std::size_t>(std::stoull(trim(lowered.substr(pos + 15))));
-	}
-	catch (const std::exception&)
-	{
-		return std::nullopt;
+		if (pos == std::string::npos)
+		{
+			return std::nullopt;
+		}
+
+		// Must start a header line, not be part of another name (e.g. "x-content-length:").
+		if (pos != 0 && lowered[pos - 1] != '\n')
+		{
+			pos += 1; // skip this occurrence and keep searching
+			continue;
+		}
+
+		// Take only that single header line, up to the next \r or \n.
+		const auto value_start = pos + 15; // strlen("content-length:")
+		auto eol = lowered.find_first_of("\r\n", value_start);
+
+		if (eol == std::string::npos)
+		{
+			eol = lowered.size();
+		}
+
+		const auto val = trim(lowered.substr(value_start, eol - value_start));
+		std::size_t idx = 0;
+
+		try
+		{
+			const auto n = std::stoull(val, &idx);
+
+			if (idx != val.size()) // trailing garbage like "123abc"
+			{
+				return std::nullopt;
+			}
+
+			return static_cast<std::size_t>(n);
+		}
+		catch (const std::exception&)
+		{
+			return std::nullopt;
+		}
 	}
 }
 }
@@ -191,6 +222,12 @@ HttpResponse parse_http_response(const std::string& response)
 		resp.headers[to_lower(trim(line.substr(0, colon)))] = trim(line.substr(colon + 1)); // last one wins
 	}
 
+	// --- reject unsupported framing ------------------------------------------
+	if (const auto* te = resp.header("transfer-encoding"); te && to_lower(*te).find("chunked") != std::string::npos)
+	{
+		throw std::runtime_error("chunked transfer-encoding is not supported");
+	}
+
 	// --- body: clamp to Content-Length if declared -------------------------
 	if (const auto cl = content_length_of_head(head); cl && resp.body.size() > *cl)
 	{
@@ -229,10 +266,23 @@ inline HttpResponse HttpTransport::get(const std::string& host, const std::strin
 {
 	const std::string path = (path_and_query.empty() || path_and_query.front() != '/') ? "/" + path_and_query : path_and_query;
 
+	// Host header per RFC 7230: bracket IPv6 literals and include the port unless it is the default.
+	std::string host_header = host;
+
+	if (host.find(':') != std::string::npos) // IPv6 literal such as "::1" or "2001:db8::1"
+	{
+		host_header = "[" + host + "]";
+	}
+
+	if (port != "80")
+	{
+		host_header += ":" + port;
+	}
+
 	// --- build the request ------------------------------------------------------
 	const std::string request =
 	    std::string("GET ") + path + " HTTP/1.1\r\n" +
-	    "Host: " + host + "\r\n" +
+	    "Host: " + host_header + "\r\n" +
 	    "User-Agent: " + m_config.user_agent + "\r\n" +
 	    "Accept: */*\r\n" +
 	    "Connection: close\r\n" +
@@ -277,6 +327,13 @@ inline HttpResponse HttpTransport::get(const std::string& host, const std::strin
 		if (!ec)
 		{
 			connected = true;
+
+#ifdef __unix__
+			// Connect succeeded: bound subsequent writes by the read timeout, not the (shorter) connect timeout.
+			const timeval tv_write = to_timeval(m_config.read_timeout);
+			::setsockopt(socket.native_handle(), SOL_SOCKET, SO_SNDTIMEO, &tv_write, sizeof(tv_write));
+#endif
+
 			break;
 		}
 
@@ -306,14 +363,14 @@ inline HttpResponse HttpTransport::get(const std::string& host, const std::strin
 	{
 		const auto n = socket.read_some(boost::asio::buffer(buf), ec);
 
+		if (ec == boost::asio::error::eof) // peer closed the connection: response complete
+		{
+			break;
+		}
+
 		if (ec)
 		{
 			throw std::system_error(ec, "read failed");
-		}
-
-		if (n == 0) // peer closed the connection: response complete
-		{
-			break;
 		}
 
 		response.append(buf, n);
@@ -331,8 +388,8 @@ inline HttpResponse HttpTransport::get(const std::string& host, const std::strin
 			const auto body_start = head_end + 4;
 
 			// Done once the declared Content-Length is fully received.
-			// Without one (e.g. chunked), we rely on "Connection: close" and read until EOF above.
-			if (!content_length || response.size() >= body_start + *content_length)
+			// Without one we rely on "Connection: close" and keep reading until EOF (bounded by max_response_size).
+			if (content_length.has_value() && response.size() >= body_start + *content_length)
 			{
 				break;
 			}
@@ -362,7 +419,29 @@ inline HttpResponse HttpTransport::get(const std::string& url) const
 	std::string host = hostport;
 	std::string port = "80"; // default HTTP port
 
-	if (const auto colon = host.rfind(':'); colon != std::string::npos)
+	if (!host.empty() && host.front() == '[')
+	{
+		// Bracketed IPv6 literal, e.g. "[::1]" or "[2001:db8::1]:6969".
+		const auto close_bracket = host.find(']');
+
+		if (close_bracket == std::string::npos)
+		{
+			throw std::invalid_argument("malformed IPv6 literal in URL: " + url);
+		}
+
+		host = host.substr(1, close_bracket - 1); // strip brackets for resolver.resolve
+
+		if (hostport.size() > close_bracket + 1)
+		{
+			if (hostport[close_bracket + 1] != ':')
+			{
+				throw std::invalid_argument("malformed IPv6 literal in URL: " + url);
+			}
+
+			port = hostport.substr(close_bracket + 2);
+		}
+	}
+	else if (const auto colon = host.rfind(':'); colon != std::string::npos)
 	{
 		port = host.substr(colon + 1);
 		host.resize(colon);
