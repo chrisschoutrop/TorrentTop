@@ -223,7 +223,7 @@ HttpResponse parse_http_response(const std::string& response)
 	}
 
 	// --- reject unsupported framing ------------------------------------------
-	if (const auto* te = resp.header("transfer-encoding"); te && to_lower(*te).find("chunked") != std::string::npos)
+	if (const auto * te = resp.header("transfer-encoding"); te && to_lower(*te).find("chunked") != std::string::npos)
 	{
 		throw std::runtime_error("chunked transfer-encoding is not supported");
 	}
