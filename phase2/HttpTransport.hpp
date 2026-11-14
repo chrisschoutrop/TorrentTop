@@ -306,7 +306,16 @@ class HttpTransport
 			std::function<void(std::exception_ptr, HttpResponse)> on_complete;
 		};
 
+		// Parsed "http://host[:port]/path[?query]" components (no https in this basic version).
+		struct UrlParts
+		{
+			std::string host; // bare hostname or IPv6 literal without brackets
+			std::string port; // decimal string, "80" when omitted
+			std::string path; // always starts with '/'
+		};
+
 		static std::string make_request(const std::string& host, const std::string& port, const std::string& path_and_query, const std::string& user_agent);
+		static UrlParts parse_http_url(const std::string& url);
 		static void async_deliver(const std::shared_ptr<AsyncSession>& session, std::exception_ptr ex, HttpResponse resp = {});
 		static void async_arm_timer(const std::shared_ptr<AsyncSession>& session, std::chrono::milliseconds timeout);
 		static void async_start_resolve(const std::shared_ptr<AsyncSession>& session);
@@ -458,6 +467,14 @@ inline HttpResponse HttpTransport::get(const std::string& host, const std::strin
 
 inline HttpResponse HttpTransport::get(const std::string& url) const
 {
+	const auto parts = parse_http_url(url);
+	return get(parts.host, parts.port, parts.path);
+}
+
+// Splits "http://host[:port]/path[?query]" into host/port/path. Throws std::invalid_argument for a non-http
+// scheme or a malformed IPv6 literal; the port defaults to "80" and the path always starts with '/'.
+inline HttpTransport::UrlParts HttpTransport::parse_http_url(const std::string& url)
+{
 	const auto scheme_end = url.find("://");
 
 	if (scheme_end == std::string::npos || to_lower(url.substr(0, scheme_end)) != "http")
@@ -501,7 +518,7 @@ inline HttpResponse HttpTransport::get(const std::string& url) const
 		host.resize(colon);
 	}
 
-	return get(host, port, path);
+	return UrlParts{host, port, path};
 }
 
 inline std::string HttpTransport::make_request(const std::string& host, const std::string& port, const std::string& path_and_query, const std::string& user_agent)
@@ -538,6 +555,7 @@ inline void HttpTransport::async_deliver(const std::shared_ptr<AsyncSession>& se
 
 	session->completed = true;
 
+	session->resolver.cancel(); // unblock a pending async_resolve so io_context::run() can exit promptly
 	session->timer.cancel(); // invalidate any outstanding async_wait (returns the number cancelled)
 	boost::system::error_code ignored;
 	session->socket.close(ignored); // best-effort, ignore errors
@@ -746,52 +764,10 @@ inline void HttpTransport::async_get(boost::asio::io_context& io, const std::str
 
 	try
 	{
-		const auto scheme_end = url.find("://");
-
-		if (scheme_end == std::string::npos || to_lower(url.substr(0, scheme_end)) != "http")
-		{
-			throw std::invalid_argument("only http:// URLs are supported: " + url);
-		}
-
-		const std::string rest = url.substr(scheme_end + 3);
-		const auto slash = rest.find('/');
-		const std::string hostport = (slash == std::string::npos) ? rest : rest.substr(0, slash);
-		const std::string path = (slash == std::string::npos) ? "/" : rest.substr(slash);
-
-		std::string host = hostport;
-		std::string port = "80"; // default HTTP port
-
-		if (!host.empty() && host.front() == '[')
-		{
-			// Bracketed IPv6 literal, e.g. "[::1]" or "[2001:db8::1]:6969".
-			const auto close_bracket = host.find(']');
-
-			if (close_bracket == std::string::npos)
-			{
-				throw std::invalid_argument("malformed IPv6 literal in URL: " + url);
-			}
-
-			host = host.substr(1, close_bracket - 1); // strip brackets for resolver.resolve
-
-			if (hostport.size() > close_bracket + 1)
-			{
-				if (hostport[close_bracket + 1] != ':')
-				{
-					throw std::invalid_argument("malformed IPv6 literal in URL: " + url);
-				}
-
-				port = hostport.substr(close_bracket + 2);
-			}
-		}
-		else if (const auto colon = host.rfind(':'); colon != std::string::npos)
-		{
-			port = host.substr(colon + 1);
-			host.resize(colon);
-		}
-
-		session->host = host;
-		session->port = port;
-		session->request = make_request(host, port, path, m_config.user_agent);
+		const auto parts = parse_http_url(url);
+		session->host = parts.host;
+		session->port = parts.port;
+		session->request = make_request(parts.host, parts.port, parts.path, m_config.user_agent);
 	}
 	catch (...)
 	{

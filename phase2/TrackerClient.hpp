@@ -9,9 +9,11 @@ Responsibilities:
     - performs one synchronous HTTP GET via HttpTransport and checks for HTTP 200
     - parses the bencoded tracker response into an AnnounceResponse
     - surfaces "failure reason" cleanly
+    - async single-tracker announce on a caller-owned io_context (async_announce)
+    - concurrent multi-tracker fan-out with worker threads, per-URL results and aggregated peers (announce_all)
 
-Header-only: all definitions are inline. Synchronous only; supports compact IPv4 "peers", non-compact
-dictionary-list "peers" (BEP-3) and 18-byte compact IPv6 "peers6" (BEP-7). Async I/O and retries are intentionally not implemented yet.
+Header-only: all definitions are inline. Supports compact IPv4 "peers", non-compact dictionary-list
+"peers" (BEP-3) and 18-byte compact IPv6 "peers6" (BEP-7). Retries/fallback tiers are intentionally not implemented yet.
 
 Usage:
     TrackerClient client; // default HttpTransport config
@@ -19,6 +21,8 @@ Usage:
     req.announce_url = "http://tracker.opentrackr.org/announce";
     ...
     AnnounceResponse resp = client.announce(req);
+    // or concurrently against several trackers (phase 5):
+    MultiAnnounceResult multi = client.announce_all({url1, url2}, req);
 */
 
 #include "HttpTransport.hpp"
@@ -26,13 +30,17 @@ Usage:
 
 #include <boost/asio/ip/address_v6.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <exception>
 #include <functional>
 #include <optional>
+#include <set>
 #include <stdexcept>
 #include <string>
+#include <thread>
+#include <utility>
 #include <vector>
 
 // A single peer from a tracker response: IP address as a string (dotted-quad IPv4, IPv6 literal, or hostname) + port in host byte order.
@@ -67,6 +75,22 @@ struct AnnounceResponse
 	int64_t interval = 0;
 	std::vector<Peer> peers;
 	std::optional<std::string> failure_reason; // set when the tracker reports a "failure reason"
+};
+
+// Per-tracker outcome of announce_all(): one entry per input URL, in input order.
+struct TrackerResult
+{
+	std::string announce_url; // the exact URL that was announced to
+	std::optional<AnnounceResponse> response; // set when HTTP 200 + bencode parse succeeded; check failure_reason for tracker-level errors
+	std::exception_ptr error; // transport/timeout/non-200/parse failure (null on success)
+};
+
+// Aggregated outcome of announce_all() across all trackers.
+struct MultiAnnounceResult
+{
+	std::vector<TrackerResult> results; // one per input URL, in input order
+	std::vector<Peer> peers;            // deduplicated union over successful non-failure responses (discovery order preserved)
+	int64_t min_interval = 0;           // smallest positive interval among successful non-failure responses, else 0
 };
 
 namespace
@@ -392,6 +416,95 @@ class TrackerClient
 					on_complete(std::current_exception(), AnnounceResponse{});
 				}
 			});
+		}
+
+		/*
+		Concurrent multi-tracker announce (phase 5): announces to every URL in announce_urls on a local
+		io_context with worker threads and collects the per-URL outcomes plus an aggregated peer list:
+		    - empty announce_urls -> empty MultiAnnounceResult (no I/O at all)
+		    - results[i] corresponds to announce_urls[i] (input order preserved); each callback writes into its
+		      own disjoint slot, so no synchronization is needed between workers
+		    - peers: deduplicated union of identical (ip, port) pairs over responses that succeeded without a
+		      "failure reason", preserving discovery order (results in input URL order, peers in response order)
+		    - min_interval: smallest positive interval among successful non-failure responses, else 0
+		num_threads is the number of io_context worker threads; clamped to announce_urls.size() and at least 1.
+		*/
+		MultiAnnounceResult announce_all(const std::vector<std::string>& announce_urls, const AnnounceRequest& base_req, std::size_t num_threads = 4) const
+		{
+			MultiAnnounceResult out;
+
+			if (announce_urls.empty())
+			{
+				return out; // nothing to do: no I/O, no threads
+			}
+
+			boost::asio::io_context io; // local executor: all async work below runs on the worker threads spawned here
+			out.results.resize(announce_urls.size());
+
+			for (std::size_t i = 0; i < announce_urls.size(); ++i)
+			{
+				out.results[i].announce_url = announce_urls[i];
+			}
+
+			for (std::size_t i = 0; i < announce_urls.size(); ++i)
+			{
+				AnnounceRequest req = base_req; // copy: each tracker gets its own URL
+				req.announce_url = announce_urls[i];
+
+				async_announce(io, req, [&out, i](std::exception_ptr ex, AnnounceResponse resp)
+				{
+					if (ex)
+					{
+						out.results[i].error = std::move(ex); // transport/timeout/non-200/parse failure
+					}
+					else
+					{
+						out.results[i].response = std::move(resp); // HTTP 200 + bencode parse succeeded (disjoint slot: no mutex needed)
+					}
+				});
+			}
+
+			const std::size_t workers = (num_threads == 0) ? 1 : std::min(num_threads, announce_urls.size());
+			std::vector<std::thread> pool;
+			pool.reserve(workers);
+
+			for (std::size_t t = 0; t < workers; ++t)
+			{
+				pool.emplace_back([&io]()
+				{
+					io.run();
+				}); // each thread exits once no work remains
+			}
+
+			for (std::thread & th : pool)
+			{
+				th.join(); // all announces are complete before we aggregate below
+			}
+
+			std::set<std::pair<std::string, uint16_t>> seen;
+
+			for (const TrackerResult & tr : out.results)
+			{
+				if (!tr.response.has_value() || tr.response->failure_reason.has_value())
+				{
+					continue; // only successful non-failure responses contribute peers/interval
+				}
+
+				for (const Peer & p : tr.response->peers)
+				{
+					if (seen.insert({p.ip, p.port}).second)
+					{
+						out.peers.push_back(p); // first discovery wins; order preserved
+					}
+				}
+
+				if (tr.response->interval > 0 && (out.min_interval == 0 || tr.response->interval < out.min_interval))
+				{
+					out.min_interval = tr.response->interval;
+				}
+			}
+
+			return out;
 		}
 
 	private:

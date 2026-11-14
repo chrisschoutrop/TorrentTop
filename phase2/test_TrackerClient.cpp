@@ -36,6 +36,9 @@ class test_TrackerClient
 			test_async_announce_local_server();
 			test_async_announce_non_200();
 			test_async_announce_malformed_bencode();
+			test_announce_all_multi_tracker_success_and_dedup();
+			test_announce_all_partial_failure_isolation();
+			test_announce_all_empty_url_list();
 		}
 
 		static void test_percent_encode_unreserved_punctuation()
@@ -723,6 +726,185 @@ class test_TrackerClient
 			}
 
 			assert(exceptionThrown);
+		}
+
+		static std::string make_announce_body(int64_t interval, const std::vector<std::array<uint8_t, 6>>& peers)
+		{
+			std::string body = "d8:intervali" + std::to_string(interval) + "e5:peers";
+			body += std::to_string(peers.size() * 6) + ":";
+
+			for (const auto& p : peers)
+			{
+				body.append(p.begin(), p.end());
+			}
+
+			body += "e"; // single 'e' closes the dictionary
+			return body;
+		}
+
+		static void test_announce_all_multi_tracker_success_and_dedup()
+		{
+			/*
+			Concurrent announce to three local trackers with overlapping peer lists (no external network):
+			    results must hold one entry per URL in input order, peers must be the deduplicated union
+			in discovery order and min_interval the smallest interval among successful responses.
+			*/
+			const std::array<uint8_t, 6> p1 = {0x01, 0x02, 0x03, 0x04, 0x1A, 0xE1}; // 1.2.3.4:6881
+			const std::array<uint8_t, 6> p2 = {0x05, 0x06, 0x07, 0x08, 0x1A, 0xE2}; // 5.6.7.8:6882
+			const std::array<uint8_t, 6> p3 = {0x09, 0x0A, 0x0B, 0x0C, 0x1A, 0xE3}; // 9.10.11.12:6883
+			const std::array<uint8_t, 6> p4 = {0x0D, 0x0E, 0x0F, 0x10, 0x1A, 0xE4}; // 13.14.15.16:6884
+
+			const std::string body_a = make_announce_body(1800, {p1, p2});
+			const std::string body_b = make_announce_body(900, {p2, p3}); // overlaps tracker A on 5.6.7.8:6882
+			const std::string body_c = make_announce_body(3600, {p1, p4}); // overlaps tracker A on 1.2.3.4:6881
+
+			local_test_server server_a("HTTP/1.1 200 OK\r\n"
+			                           "Content-Type: text/plain\r\n"
+			                           "Content-Length: " + std::to_string(body_a.size()) + "\r\n"
+			                           "\r\n" + body_a);
+			local_test_server server_b("HTTP/1.1 200 OK\r\n"
+			                           "Content-Type: text/plain\r\n"
+			                           "Content-Length: " + std::to_string(body_b.size()) + "\r\n"
+			                           "\r\n" + body_b);
+			local_test_server server_c("HTTP/1.1 200 OK\r\n"
+			                           "Content-Type: text/plain\r\n"
+			                           "Content-Length: " + std::to_string(body_c.size()) + "\r\n"
+			                           "\r\n" + body_c);
+
+			const std::string url_a = "http://127.0.0.1:" + server_a.port() + "/announce";
+			const std::string url_b = "http://127.0.0.1:" + server_b.port() + "/announce";
+			const std::string url_c = "http://127.0.0.1:" + server_c.port() + "/announce";
+
+			AnnounceRequest req; // base request: announce_all() fills in one URL per tracker
+			req.peer_id = {'T', 'T'};
+			req.port = 6881;
+
+			const MultiAnnounceResult out = TrackerClient().announce_all({url_a, url_b, url_c}, req);
+
+			assert(out.results.size() == 3); // one entry per input URL
+			assert(out.results[0].announce_url == url_a); // input order preserved
+			assert(out.results[1].announce_url == url_b);
+			assert(out.results[2].announce_url == url_c);
+
+			for (const TrackerResult& tr : out.results)
+			{
+				assert(tr.error == nullptr);
+				assert(tr.response.has_value());
+			}
+
+			assert(out.peers.size() == 4); // deduplicated union: p1, p2 from A; p3 from B; p4 from C
+			assert(out.peers[0].ip == "1.2.3.4");
+			assert(out.peers[0].port == 6881);
+			assert(out.peers[1].ip == "5.6.7.8");
+			assert(out.peers[1].port == 6882);
+			assert(out.peers[2].ip == "9.10.11.12");
+			assert(out.peers[2].port == 6883);
+			assert(out.peers[3].ip == "13.14.15.16");
+			assert(out.peers[3].port == 6884);
+
+			assert(out.min_interval == 900); // smallest of 1800/900/3600
+		}
+
+		static void test_announce_all_partial_failure_isolation()
+		{
+			/*
+			Concurrent announce where one tracker fails at the transport level (HTTP 503) and another
+			reports a bencoded "failure reason": neither may throw nor poison the aggregate; only the
+			healthy tracker's peers/interval contribute to the merged result.
+			*/
+			const std::array<uint8_t, 6> p1 = {0x01, 0x02, 0x03, 0x04, 0x1A, 0xE1}; // 1.2.3.4:6881
+			const std::string body_ok = make_announce_body(1800, {p1});
+
+			local_test_server server_ok("HTTP/1.1 200 OK\r\n"
+			                            "Content-Type: text/plain\r\n"
+			                            "Content-Length: " + std::to_string(body_ok.size()) + "\r\n"
+			                            "\r\n" + body_ok);
+			local_test_server server_503("HTTP/1.1 503 Service Unavailable\r\n"
+			                             "Content-Length: 2\r\n"
+			                             "\r\n"
+			                             "de");
+			const std::string body_failure = "d14:failure reason16:invalid infohashe";
+
+			local_test_server server_failure("HTTP/1.1 200 OK\r\n"
+			                                 "Content-Type: text/plain\r\n"
+			                                 "Content-Length: " + std::to_string(body_failure.size()) + "\r\n"
+			                                 "\r\n" + body_failure);
+
+			const std::string url_ok = "http://127.0.0.1:" + server_ok.port() + "/announce";
+			const std::string url_503 = "http://127.0.0.1:" + server_503.port() + "/announce";
+			const std::string url_failure = "http://127.0.0.1:" + server_failure.port() + "/announce";
+
+			AnnounceRequest req;
+			req.peer_id = {'T', 'T'};
+			req.port = 6881;
+
+			MultiAnnounceResult out;
+			bool threw = false;
+
+			try
+			{
+				out = TrackerClient().announce_all({url_ok, url_503, url_failure}, req);
+			}
+			catch (const std::exception& e)
+			{
+				threw = true;
+				std::cout << "#e29e5d: announce_all threw unexpectedly: " << e.what() << std::endl;
+			}
+
+			assert(!threw); // per-tracker failures must be isolated in TrackerResult, not thrown
+			assert(out.results.size() == 3);
+
+			// Tracker 1: healthy -> parsed response with peers, no error.
+			assert(out.results[0].error == nullptr);
+			assert(out.results[0].response.has_value());
+			assert(!out.results[0].response->failure_reason.has_value());
+			assert(out.results[0].response->peers.size() == 1);
+
+			// Tracker 2: HTTP 503 -> error populated, no response.
+			assert(out.results[1].error != nullptr);
+			assert(!out.results[1].response.has_value());
+
+			bool exceptionThrown = false;
+
+			try
+			{
+				std::rethrow_exception(out.results[1].error);
+			}
+			catch (const std::exception& e) // HttpTransport throws runtime_error for non-200 statuses
+			{
+				exceptionThrown = true;
+				std::cout << "#0a9e8b: expected failure: " << e.what() << std::endl;
+			}
+
+			assert(exceptionThrown);
+
+			// Tracker 3: bencoded "failure reason" -> parsed response, no error, contributes nothing.
+			assert(out.results[2].error == nullptr);
+			assert(out.results[2].response.has_value());
+			assert(out.results[2].response->failure_reason.has_value());
+			assert(*out.results[2].response->failure_reason == "invalid infohash");
+
+			// Aggregate: only the healthy tracker's peer survives; its interval is the minimum.
+			assert(out.peers.size() == 1);
+			assert(out.peers[0].ip == "1.2.3.4");
+			assert(out.peers[0].port == 6881);
+			assert(out.min_interval == 1800);
+		}
+
+		static void test_announce_all_empty_url_list()
+		{
+			/*
+			Empty URL list -> announce_all() must short-circuit with an empty MultiAnnounceResult:
+			no I/O, no threads, nothing to aggregate.
+			*/
+			AnnounceRequest req;
+			req.peer_id = {'T', 'T'};
+
+			const MultiAnnounceResult out = TrackerClient().announce_all({}, req);
+
+			assert(out.results.empty());
+			assert(out.peers.empty());
+			assert(out.min_interval == 0);
 		}
 };
 
