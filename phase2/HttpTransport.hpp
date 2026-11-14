@@ -24,11 +24,15 @@ Usage:
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <exception>
+#include <functional>
 #include <map>
+#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
 #include <system_error>
+#include <vector>
 
 #ifdef __unix__
 #   include <sys/socket.h> // SOL_SOCKET, SO_RCVTIMEO, SO_SNDTIMEO
@@ -258,8 +262,58 @@ class HttpTransport
 		// Convenience overload for "http://host[:port]/path[?query]" (no https in this basic version).
 		HttpResponse get(const std::string& url) const;
 
+		// Asynchronous GET on a caller-owned io_context (Boost.Asio, callback-based; no threads added here):
+		// resolve -> connect (try each endpoint) -> write request -> read full response. The resolve/connect phase is
+		// bounded by Config::connect_timeout and the write/read phase by Config::read_timeout (re-armed on every read
+		// progress); expiry delivers std::system_error(boost::asio::error::timed_out). on_complete is invoked at most
+		// once, with a non-null exception_ptr on failure (URL/parse errors included) and the parsed HttpResponse on success.
+		void async_get(boost::asio::io_context& io, const std::string& host, const std::string& port, const std::string& path_and_query, std::function<void(std::exception_ptr, HttpResponse)> on_complete) const;
+
+		// Convenience overload for "http://host[:port]/path[?query]"; delegates to the (io, host, port, ...) form.
+		void async_get(boost::asio::io_context& io, const std::string& url, std::function<void(std::exception_ptr, HttpResponse)> on_complete) const;
+
 	private:
 		Config m_config;
+
+		// Per-request state shared by all in-flight callbacks so none of them can dangle.
+		struct AsyncSession
+		{
+			explicit AsyncSession(boost::asio::io_context& io) : resolver(io), socket(io), timer(io) {}
+
+			boost::asio::ip::tcp::resolver resolver;
+			boost::asio::ip::tcp::socket socket;
+			boost::asio::steady_timer timer;
+
+			std::string host; // for error messages only
+			std::string port; // for error messages only
+			std::string request;
+			std::string response;
+			char buf[8192] {};
+			std::vector<boost::asio::ip::tcp::endpoint> endpoints;
+			std::size_t endpoint_index = 0;
+			boost::system::error_code last_error{boost::asio::error::not_connected};
+
+			enum class Phase { Resolving, Writing, Reading };
+			Phase phase = Phase::Resolving;
+
+			bool completed = false; // at-most-once guard for on_complete
+			std::size_t timer_generation = 0; // invalidates stale async_wait handlers after a re-arm
+
+			std::chrono::milliseconds connect_timeout{5000};
+			std::chrono::milliseconds read_timeout{10000};
+			std::size_t max_response_size = 0;
+
+			std::function<void(std::exception_ptr, HttpResponse)> on_complete;
+		};
+
+		static std::string make_request(const std::string& host, const std::string& port, const std::string& path_and_query, const std::string& user_agent);
+		static void async_deliver(const std::shared_ptr<AsyncSession>& session, std::exception_ptr ex, HttpResponse resp = {});
+		static void async_arm_timer(const std::shared_ptr<AsyncSession>& session, std::chrono::milliseconds timeout);
+		static void async_start_resolve(const std::shared_ptr<AsyncSession>& session);
+		static void async_start_connect(const std::shared_ptr<AsyncSession>& session);
+		static void async_start_write(const std::shared_ptr<AsyncSession>& session);
+		static void async_start_read(const std::shared_ptr<AsyncSession>& session);
+		static void async_finish(const std::shared_ptr<AsyncSession>& session);
 };
 
 inline HttpResponse HttpTransport::get(const std::string& host, const std::string& port, const std::string& path_and_query) const
@@ -448,6 +502,304 @@ inline HttpResponse HttpTransport::get(const std::string& url) const
 	}
 
 	return get(host, port, path);
+}
+
+inline std::string HttpTransport::make_request(const std::string& host, const std::string& port, const std::string& path_and_query, const std::string& user_agent)
+{
+	const std::string path = (path_and_query.empty() || path_and_query.front() != '/') ? "/" + path_and_query : path_and_query;
+
+	// Host header per RFC 7230: bracket IPv6 literals and include the port unless it is the default.
+	std::string host_header = host;
+
+	if (host.find(':') != std::string::npos) // IPv6 literal such as "::1" or "2001:db8::1"
+	{
+		host_header = "[" + host + "]";
+	}
+
+	if (port != "80")
+	{
+		host_header += ":" + port;
+	}
+
+	return std::string("GET ") + path + " HTTP/1.1\r\n" +
+	       "Host: " + host_header + "\r\n" +
+	       "User-Agent: " + user_agent + "\r\n" +
+	       "Accept: */*\r\n" +
+	       "Connection: close\r\n" +
+	       "\r\n";
+}
+
+inline void HttpTransport::async_deliver(const std::shared_ptr<AsyncSession>& session, std::exception_ptr ex, HttpResponse resp)
+{
+	if (session->completed)
+	{
+		return; // on_complete is invoked at most once
+	}
+
+	session->completed = true;
+
+	session->timer.cancel(); // invalidate any outstanding async_wait (returns the number cancelled)
+	boost::system::error_code ignored;
+	session->socket.close(ignored); // best-effort, ignore errors
+
+	session->on_complete(std::move(ex), std::move(resp));
+}
+
+inline void HttpTransport::async_arm_timer(const std::shared_ptr<AsyncSession>& session, std::chrono::milliseconds timeout)
+{
+	// Cancel any outstanding wait first: steady_timer may accumulate multiple async_wait handlers.
+	session->timer.cancel(); // returns the number of cancelled waits; ignore it
+
+	session->timer.expires_after(timeout);
+	const std::size_t generation = ++session->timer_generation; // invalidate any stale handler from a previous arm
+
+	session->timer.async_wait([session, generation](const boost::system::error_code & ec)
+	{
+		if (ec == boost::asio::error::operation_aborted || session->completed || generation != session->timer_generation)
+		{
+			return; // the timer was re-armed, or the request already completed
+		}
+
+		const std::string what = (session->phase == AsyncSession::Phase::Resolving)
+		                         ? "async_get timed out during resolve/connect"
+		                         : "async_get timed out while writing the request or reading the response";
+
+		async_deliver(session, std::make_exception_ptr(std::system_error(boost::asio::error::make_error_code(boost::asio::error::timed_out), what)));
+	});
+}
+
+inline void HttpTransport::async_start_resolve(const std::shared_ptr<AsyncSession>& session)
+{
+	session->phase = AsyncSession::Phase::Resolving;
+	async_arm_timer(session, session->connect_timeout); // bounds resolve + connect
+
+	session->resolver.async_resolve(session->host, session->port, [session](const boost::system::error_code & ec, boost::asio::ip::tcp::resolver::results_type results)
+	{
+		if (ec)
+		{
+			async_deliver(session, std::make_exception_ptr(std::system_error(ec, "DNS resolve failed for " + session->host + ":" + session->port)));
+			return;
+		}
+
+		session->endpoints.assign(results.begin(), results.end());
+		session->endpoint_index = 0;
+		async_start_connect(session);
+	});
+}
+
+inline void HttpTransport::async_start_connect(const std::shared_ptr<AsyncSession>& session)
+{
+	if (session->endpoint_index >= session->endpoints.size())
+	{
+		async_deliver(session, std::make_exception_ptr(std::system_error(session->last_error, "connect to " + session->host + ":" + session->port + " failed")));
+		return;
+	}
+
+	const auto endpoint = session->endpoints[session->endpoint_index++];
+
+	boost::system::error_code ec;
+	session->socket.close(ec); // drop any socket left over from a previous attempt (ignore errors)
+	session->socket.open(endpoint.protocol(), ec);
+
+	if (ec)
+	{
+		session->last_error = ec;
+		async_start_connect(session); // try the next endpoint
+		return;
+	}
+
+	session->socket.async_connect(endpoint, [session](const boost::system::error_code & connect_ec)
+	{
+		if (connect_ec)
+		{
+			session->last_error = connect_ec;
+			boost::system::error_code ignored;
+			session->socket.close(ignored); // best-effort, ignore errors
+			async_start_connect(session); // try the next endpoint
+			return;
+		}
+
+		session->phase = AsyncSession::Phase::Writing;
+		async_start_write(session);
+	});
+}
+
+inline void HttpTransport::async_start_write(const std::shared_ptr<AsyncSession>& session)
+{
+	session->phase = AsyncSession::Phase::Writing;
+	async_arm_timer(session, session->read_timeout); // bounds write + read (re-armed on every read progress)
+
+	boost::asio::async_write(session->socket, boost::asio::buffer(session->request), [session](const boost::system::error_code & ec, std::size_t bytes_transferred)
+	{
+		(void)bytes_transferred;
+
+		if (ec)
+		{
+			async_deliver(session, std::make_exception_ptr(std::system_error(ec, "send failed")));
+			return;
+		}
+
+		session->phase = AsyncSession::Phase::Reading;
+		async_start_read(session);
+	});
+}
+
+inline void HttpTransport::async_start_read(const std::shared_ptr<AsyncSession>& session)
+{
+	session->phase = AsyncSession::Phase::Reading;
+	async_arm_timer(session, session->read_timeout); // reset on every read progress
+
+	session->socket.async_read_some(boost::asio::buffer(session->buf), [session](const boost::system::error_code & ec, std::size_t n)
+	{
+		if (session->completed)
+		{
+			return; // a timeout already delivered the result
+		}
+
+		if (ec == boost::asio::error::eof) // peer closed the connection: response complete
+		{
+			async_finish(session);
+			return;
+		}
+
+		if (ec)
+		{
+			async_deliver(session, std::make_exception_ptr(std::system_error(ec, "read failed")));
+			return;
+		}
+
+		session->response.append(session->buf, n);
+
+		if (session->response.size() > session->max_response_size)
+		{
+			async_deliver(session, std::make_exception_ptr(std::runtime_error("response exceeds max_response_size (" + std::to_string(session->max_response_size) + " bytes)")));
+			return;
+		}
+
+		const auto head_end = session->response.find("\r\n\r\n");
+
+		if (head_end != std::string::npos)
+		{
+			const auto content_length = content_length_of_head(session->response.substr(0, head_end));
+			const auto body_start = head_end + 4;
+
+			// Done once the declared Content-Length is fully received.
+			// Without one we rely on "Connection: close" and keep reading until EOF (bounded by max_response_size).
+			if (content_length.has_value() && session->response.size() >= body_start + *content_length)
+			{
+				async_finish(session);
+				return;
+			}
+		}
+
+		async_start_read(session); // read the next chunk (re-arms the timeout)
+	});
+}
+
+inline void HttpTransport::async_finish(const std::shared_ptr<AsyncSession>& session)
+{
+	boost::system::error_code ignored;
+	session->socket.close(ignored); // best-effort, ignore errors
+
+	try
+	{
+		async_deliver(session, nullptr, parse_http_response(session->response));
+	}
+	catch (...)
+	{
+		async_deliver(session, std::current_exception());
+	}
+}
+
+inline void HttpTransport::async_get(boost::asio::io_context& io, const std::string& host, const std::string& port, const std::string& path_and_query, std::function<void(std::exception_ptr, HttpResponse)> on_complete) const
+{
+	auto session = std::make_shared<AsyncSession>(io);
+
+	session->on_complete = std::move(on_complete);
+	session->host = host;
+	session->port = port;
+	session->connect_timeout = m_config.connect_timeout;
+	session->read_timeout = m_config.read_timeout;
+	session->max_response_size = m_config.max_response_size;
+
+	try
+	{
+		session->request = make_request(host, port, path_and_query, m_config.user_agent);
+	}
+	catch (...)
+	{
+		async_deliver(session, std::current_exception());
+		return;
+	}
+
+	async_start_resolve(session);
+}
+
+inline void HttpTransport::async_get(boost::asio::io_context& io, const std::string& url, std::function<void(std::exception_ptr, HttpResponse)> on_complete) const
+{
+	auto session = std::make_shared<AsyncSession>(io);
+
+	session->on_complete = std::move(on_complete);
+	session->connect_timeout = m_config.connect_timeout;
+	session->read_timeout = m_config.read_timeout;
+	session->max_response_size = m_config.max_response_size;
+
+	try
+	{
+		const auto scheme_end = url.find("://");
+
+		if (scheme_end == std::string::npos || to_lower(url.substr(0, scheme_end)) != "http")
+		{
+			throw std::invalid_argument("only http:// URLs are supported: " + url);
+		}
+
+		const std::string rest = url.substr(scheme_end + 3);
+		const auto slash = rest.find('/');
+		const std::string hostport = (slash == std::string::npos) ? rest : rest.substr(0, slash);
+		const std::string path = (slash == std::string::npos) ? "/" : rest.substr(slash);
+
+		std::string host = hostport;
+		std::string port = "80"; // default HTTP port
+
+		if (!host.empty() && host.front() == '[')
+		{
+			// Bracketed IPv6 literal, e.g. "[::1]" or "[2001:db8::1]:6969".
+			const auto close_bracket = host.find(']');
+
+			if (close_bracket == std::string::npos)
+			{
+				throw std::invalid_argument("malformed IPv6 literal in URL: " + url);
+			}
+
+			host = host.substr(1, close_bracket - 1); // strip brackets for resolver.resolve
+
+			if (hostport.size() > close_bracket + 1)
+			{
+				if (hostport[close_bracket + 1] != ':')
+				{
+					throw std::invalid_argument("malformed IPv6 literal in URL: " + url);
+				}
+
+				port = hostport.substr(close_bracket + 2);
+			}
+		}
+		else if (const auto colon = host.rfind(':'); colon != std::string::npos)
+		{
+			port = host.substr(colon + 1);
+			host.resize(colon);
+		}
+
+		session->host = host;
+		session->port = port;
+		session->request = make_request(host, port, path, m_config.user_agent);
+	}
+	catch (...)
+	{
+		async_deliver(session, std::current_exception());
+		return;
+	}
+
+	async_start_resolve(session);
 }
 
 #endif // HTTP_TRANSPORT_HPP

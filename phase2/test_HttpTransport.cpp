@@ -1,10 +1,13 @@
 #include "HttpTransport.hpp"
 
 #include <cassert>
+#include <chrono>
 #include <cstdint>
+#include <exception>
 #include <iostream>
 #include <random>
 #include <string>
+#include <system_error>
 #include <thread>
 
 // Minimal single-shot local HTTP server so the end-to-end tests need no external network (shared with test_TrackerClient).
@@ -25,6 +28,9 @@ class test_HttpTransport
 			test_url_ipv6_and_port();
 			test_get_connection_refused();
 			test_max_response_size();
+			test_async_get_local_server();
+			test_async_get_timeout();
+			test_async_get_errors();
 			test_parse_random_inputs();
 		}
 
@@ -453,6 +459,194 @@ class test_HttpTransport
 					;
 				}
 			}
+		}
+
+		static void test_async_get_local_server()
+		{
+			/*
+			async_get against a local single-shot server (no external network):
+			    200 OK + Content-Length body -> on_complete fires exactly once with no exception and the parsed response.
+			*/
+			local_test_server server("HTTP/1.1 200 OK\r\n"
+			                         "Content-Type: text/plain\r\n"
+			                         "Content-Length: 5\r\n"
+			                         "\r\nhello");
+
+			HttpTransport http;
+			boost::asio::io_context io;
+
+			std::exception_ptr ex;
+			HttpResponse resp;
+			int calls = 0;
+
+			http.async_get(io, "127.0.0.1", server.port(), "/announce?info_hash=abc", [&ex, &resp, &calls](std::exception_ptr e, HttpResponse r)
+			{
+				ex = std::move(e);
+				resp = std::move(r);
+				calls++;
+			});
+
+			io.run(); // drives the async operations to completion (no-op if already done)
+
+			assert(calls == 1);
+			assert(ex == nullptr);
+			assert(resp.status_code == 200);
+			assert(resp.body == "hello");
+		}
+
+		static void test_async_get_timeout()
+		{
+			/*
+			The server accepts the connection but sends nothing: async_get must time out (read_timeout) and deliver a
+			std::system_error with boost::asio::error::timed_out via the exception_ptr.
+			*/
+			boost::asio::io_context accept_io;
+			boost::system::error_code ec;
+			boost::asio::ip::tcp::acceptor acceptor(accept_io);
+
+			acceptor.open(boost::asio::ip::tcp::v4(), ec);
+			assert(!ec);
+
+			acceptor.set_option(boost::asio::socket_base::reuse_address(true));
+			acceptor.listen(1, ec);
+			assert(!ec);
+
+			const std::string port = std::to_string(acceptor.local_endpoint(ec).port());
+			assert(!ec);
+
+			std::thread holder([&acceptor, &accept_io]()
+			{
+				boost::asio::ip::tcp::socket peer(accept_io);
+				boost::system::error_code accept_ec;
+				acceptor.accept(peer, accept_ec); // hold the connection open without sending anything
+
+				if (!accept_ec)
+				{
+					std::this_thread::sleep_for(std::chrono::milliseconds(500));
+				}
+			});
+
+			HttpTransport::Config config;
+			config.read_timeout = std::chrono::milliseconds(50); // short: the timeout must fire well before the holder gives up
+			HttpTransport http(config);
+
+			boost::asio::io_context io;
+			std::exception_ptr ex;
+			int calls = 0;
+
+			http.async_get(io, "127.0.0.1", port, "/", [&ex, &calls](std::exception_ptr e, HttpResponse)
+			{
+				ex = std::move(e);
+				calls++;
+			});
+
+			io.run(); // must return once the timeout delivers the result
+			holder.join();
+
+			assert(calls == 1);
+			assert(ex != nullptr);
+
+			bool timedOut = false;
+
+			try
+			{
+				std::rethrow_exception(ex);
+			}
+			catch (const std::system_error& e)
+			{
+				timedOut = (e.code() == boost::asio::error::make_error_code(boost::asio::error::timed_out));
+				std::cout << "#0a9e8b: expected timeout: " << e.what() << std::endl;
+			}
+
+			assert(timedOut);
+		}
+
+		static void test_async_get_errors()
+		{
+			/*
+			Error propagation through the callback (no throw):
+			    - invalid URL scheme -> on_complete fires synchronously with std::invalid_argument
+			    - connection refused  -> on_complete fires after io.run() with std::system_error
+			*/
+			HttpTransport http;
+
+			// (a) invalid URL: delivered to the callback before any I/O is started
+			boost::asio::io_context io_invalid;
+			std::exception_ptr ex_url;
+			int calls = 0;
+
+			http.async_get(io_invalid, "https://example.com/", [&ex_url, &calls](std::exception_ptr e, HttpResponse)
+			{
+				ex_url = std::move(e);
+				calls++;
+			});
+
+			io_invalid.run(); // no-op: the callback already fired synchronously
+
+			assert(calls == 1);
+			assert(ex_url != nullptr);
+
+			bool invalidArgument = false;
+
+			try
+			{
+				std::rethrow_exception(ex_url);
+			}
+			catch (const std::invalid_argument& e)
+			{
+				invalidArgument = true;
+				std::cout << "#0a9e8b: expected failure: " << e.what() << std::endl;
+			}
+
+			assert(invalidArgument);
+
+			// (b) connection refused: bind a port to get a free one, release it, then expect the connect to fail
+			std::string port;
+
+			{
+				boost::asio::io_context io;
+				boost::system::error_code ec;
+				boost::asio::ip::tcp::acceptor acceptor(io);
+
+				acceptor.open(boost::asio::ip::tcp::v4(), ec);
+				assert(!ec);
+
+				acceptor.set_option(boost::asio::socket_base::reuse_address(true));
+				acceptor.listen(1, ec);
+				assert(!ec);
+
+				port = std::to_string(acceptor.local_endpoint(ec).port());
+				assert(!ec);
+			} // acceptor destroyed here: the port is now free -> connect must be refused
+
+			boost::asio::io_context io_refused;
+			std::exception_ptr ex_refused;
+			calls = 0;
+
+			http.async_get(io_refused, "127.0.0.1", port, "/", [&ex_refused, &calls](std::exception_ptr e, HttpResponse)
+			{
+				ex_refused = std::move(e);
+				calls++;
+			});
+
+			io_refused.run();
+
+			assert(calls == 1);
+			assert(ex_refused != nullptr);
+
+			bool systemError = false;
+
+			try
+			{
+				std::rethrow_exception(ex_refused);
+			}
+			catch (const std::system_error& e)
+			{
+				systemError = true;
+				std::cout << "#0a9e8b: expected failure: " << e.what() << std::endl;
+			}
+
+			assert(systemError);
 		}
 
 

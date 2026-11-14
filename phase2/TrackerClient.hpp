@@ -28,12 +28,14 @@ Usage:
 
 #include <array>
 #include <cstdint>
+#include <exception>
+#include <functional>
 #include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
-// A single peer from a tracker response: dotted-quad IPv4 string + port in host byte order.
+// A single peer from a tracker response: IP address as a string (dotted-quad IPv4, IPv6 literal, or hostname) + port in host byte order.
 struct Peer
 {
 	std::string ip; // e.g. "192.168.1.1"
@@ -358,6 +360,38 @@ class TrackerClient
 			}
 
 			return parse_response(http_resp.body);
+		}
+
+		// Asynchronous announce on a caller-owned io_context: builds the URL, performs one async GET via HttpTransport,
+		// requires HTTP 200 and parses the body. on_complete is invoked at most once with a non-null exception_ptr on any
+		// failure (transport error, non-200 status, or malformed bencode) and the parsed AnnounceResponse on success.
+		void async_announce(boost::asio::io_context& io, const AnnounceRequest& req, std::function<void(std::exception_ptr, AnnounceResponse)> on_complete) const
+		{
+			const std::string url = build_announce_url(req);
+
+			m_http.async_get(io, url, [on_complete = std::move(on_complete), url](std::exception_ptr ex, HttpResponse http_resp)
+			{
+				if (ex)
+				{
+					on_complete(std::move(ex), AnnounceResponse{});
+					return;
+				}
+
+				if (http_resp.status_code != 200)
+				{
+					on_complete(std::make_exception_ptr(std::runtime_error("tracker returned HTTP " + std::to_string(http_resp.status_code) + " for " + url)), AnnounceResponse{});
+					return;
+				}
+
+				try
+				{
+					on_complete(nullptr, parse_response(http_resp.body));
+				}
+				catch (...)
+				{
+					on_complete(std::current_exception(), AnnounceResponse{});
+				}
+			});
 		}
 
 	private:

@@ -1,10 +1,13 @@
 #include "TrackerClient.hpp"
 
 #include <cassert>
+#include <chrono>
 #include <cstdint>
+#include <exception>
 #include <iostream>
 #include <random>
 #include <string>
+#include <system_error>
 #include <thread>
 
 // Minimal single-shot local HTTP server so the announce() end-to-end tests need no external network (shared with test_HttpTransport).
@@ -30,6 +33,9 @@ class test_TrackerClient
 			test_announce_local_server();
 			test_announce_failure_reason();
 			test_announce_non_200();
+			test_async_announce_local_server();
+			test_async_announce_non_200();
+			test_async_announce_malformed_bencode();
 		}
 
 		static void test_percent_encode_unreserved_punctuation()
@@ -572,6 +578,145 @@ class test_TrackerClient
 				std::cout << "#46188c: HTTP 503 was not rejected" << std::endl;
 			}
 			catch (const std::runtime_error& e)
+			{
+				exceptionThrown = true;
+				std::cout << "#0a9e8b: expected failure: " << e.what() << std::endl;
+			}
+
+			assert(exceptionThrown);
+		}
+
+		static void test_async_announce_local_server()
+		{
+			/*
+			async_announce end-to-end against a local single-shot server (no external network):
+			    200 OK + bencoded body -> on_complete fires exactly once with no exception and the parsed response,
+			    and the request line must carry the percent-encoded query string built by build_announce_url().
+			*/
+			std::string body = "d8:intervali3600e5:peers6:"; // 6-byte compact peers string (one peer)
+			const char peers_bytes[] = {static_cast<char>(0xC0), static_cast<char>(0xA8), '\x01', '\x01', static_cast<char>(0x1A), static_cast<char>(0xE1)};
+			body.append(peers_bytes, sizeof(peers_bytes)); // one peer: 192.168.1.1:6881 (6 bytes is a valid multiple of 6)
+			body += "e"; // single 'e' closes the dictionary
+
+			local_test_server server("HTTP/1.1 200 OK\r\n"
+			                         "Content-Type: text/plain\r\n"
+			                         "Content-Length: " + std::to_string(body.size()) + "\r\n"
+			                         "\r\n" + body);
+
+			AnnounceRequest req;
+			req.announce_url = "http://127.0.0.1:" + server.port() + "/announce";
+			req.info_hash[0] = 0x00; // NUL byte must be percent-encoded in the request line
+			req.peer_id = {'T', 'T'};
+			req.port = 6881;
+
+			boost::asio::io_context io;
+			std::exception_ptr ex;
+			AnnounceResponse resp;
+			int calls = 0;
+
+			TrackerClient().async_announce(io, req, [&ex, &resp, &calls](std::exception_ptr e, AnnounceResponse r)
+			{
+				ex = std::move(e);
+				resp = std::move(r);
+				calls++;
+			});
+
+			io.run(); // drives the async operations to completion (no-op if already done)
+
+			assert(calls == 1);
+			assert(ex == nullptr);
+			assert(resp.interval == 3600);
+			assert(resp.peers.size() == 1);
+			assert(resp.peers[0].ip == "192.168.1.1");
+			assert(resp.peers[0].port == 6881);
+
+			// The raw request line must contain the percent-encoded info_hash (NUL -> %00).
+			const std::string& request = server.last_request();
+			assert(request.rfind("GET /announce?info_hash=%00", 0) != std::string::npos);
+			assert(request.find("&compact=1") != std::string::npos);
+		}
+
+		static void test_async_announce_non_200()
+		{
+			/*
+			Tracker answers with a non-200 status -> async_announce must deliver an exception_ptr (std::runtime_error),
+			even if the body is valid bencode.
+			*/
+			local_test_server server("HTTP/1.1 503 Service Unavailable\r\n"
+			                         "Content-Length: 2\r\n"
+			                         "\r\n"
+			                         "de");
+
+			AnnounceRequest req;
+			req.announce_url = "http://127.0.0.1:" + server.port() + "/announce";
+
+			boost::asio::io_context io;
+			std::exception_ptr ex;
+			int calls = 0;
+
+			TrackerClient().async_announce(io, req, [&ex, &calls](std::exception_ptr e, AnnounceResponse)
+			{
+				ex = std::move(e);
+				calls++;
+			});
+
+			io.run();
+
+			assert(calls == 1);
+			assert(ex != nullptr);
+
+			bool exceptionThrown = false;
+
+			try
+			{
+				std::rethrow_exception(ex);
+			}
+			catch (const std::runtime_error& e)
+			{
+				exceptionThrown = true;
+				std::cout << "#0a9e8b: expected failure: " << e.what() << std::endl;
+			}
+
+			assert(exceptionThrown);
+		}
+
+		static void test_async_announce_malformed_bencode()
+		{
+			/*
+			200 OK but the body is not valid bencode -> async_announce must deliver a parse error via exception_ptr.
+			*/
+			const std::string body = "this is not bencode at all";
+
+			local_test_server server("HTTP/1.1 200 OK\r\n"
+			                         "Content-Type: text/plain\r\n"
+			                         "Content-Length: " + std::to_string(body.size()) + "\r\n"
+			                         "\r\n" + body);
+
+			AnnounceRequest req;
+			req.announce_url = "http://127.0.0.1:" + server.port() + "/announce";
+
+			boost::asio::io_context io;
+			std::exception_ptr ex;
+			int calls = 0;
+
+			TrackerClient().async_announce(io, req, [&ex, &calls](std::exception_ptr e, AnnounceResponse)
+			{
+				ex = std::move(e);
+				calls++;
+			});
+
+			io.run();
+
+			assert(calls == 1);
+			assert(ex != nullptr);
+
+			bool exceptionThrown = false;
+
+			try
+			{
+				std::rethrow_exception(ex);
+			}
+			catch (const std::exception& e) // BencodeParser throws invalid_argument/runtime_error/out_of_range
 			{
 				exceptionThrown = true;
 				std::cout << "#0a9e8b: expected failure: " << e.what() << std::endl;
