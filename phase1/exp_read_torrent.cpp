@@ -74,13 +74,21 @@ int main()
 {
 	std::cout << "exp_read_torrent.cpp" << std::endl;
 
-	std::vector<std::byte> torrent_bytes = readFileData("archlinux-2026.10.01-x86_64.iso.torrent");
+	try
+	{
+		std::vector<std::byte> torrent_bytes = readFileData("archlinux-2026.10.01-x86_64.iso.torrent");
 
-	//Parser P(torrent_bytes);
-	//BencodeValue result = P.parse();
-	//std::cout << result << std::endl;
-	boost::hash2::digest<20> info_hash = compute_info_hash_v1(torrent_bytes);
-	assert(to_string(info_hash) == "9b521219bc48550140a666f74a29048ed78e933b");
+		//Parser P(torrent_bytes);
+		//BencodeValue result = P.parse();
+		//std::cout << result << std::endl;
+		boost::hash2::digest<20> info_hash = compute_info_hash_v1(torrent_bytes);
+		assert(to_string(info_hash) == "9b521219bc48550140a666f74a29048ed78e933b");
+	}
+	catch (const std::exception& e)
+	{
+		std::cerr << "exp_read_torrent failed: " << e.what() << std::endl;
+		return 1;
+	}
 
 	/*
 	From Torrent decoder:

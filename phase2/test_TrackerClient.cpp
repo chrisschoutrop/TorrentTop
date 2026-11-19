@@ -196,12 +196,12 @@ class test_TrackerClient
 			try
 			{
 				const AnnounceResponse resp = TrackerClient::parse_response("d5:peers5:12345e");
-				std::cout << "#e29e5d: 5-byte peers string was not rejected" << std::endl;
+				std::cout << "#58b31d: 5-byte peers string was not rejected" << std::endl;
 			}
 			catch (const std::invalid_argument& e)
 			{
 				exceptionThrown = true;
-				std::cout << "#0a9e8b: expected failure: " << e.what() << std::endl;
+				std::cout << "#9f933f: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -211,12 +211,12 @@ class test_TrackerClient
 			try
 			{
 				const AnnounceResponse resp = TrackerClient::parse_response("d5:peers7:1234567e");
-				std::cout << "#e29e5d: 7-byte peers string was not rejected" << std::endl;
+				std::cout << "#712312: 7-byte peers string was not rejected" << std::endl;
 			}
 			catch (const std::invalid_argument& e)
 			{
 				exceptionThrown = true;
-				std::cout << "#0a9e8b: expected failure: " << e.what() << std::endl;
+				std::cout << "#276bb9: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -261,12 +261,12 @@ class test_TrackerClient
 			try
 			{
 				const AnnounceResponse resp = TrackerClient::parse_response("d5:peersli1eee");
-				std::cout << "#e29e5d: non-dict peers list element was not rejected" << std::endl;
+				std::cout << "#45f4a4: non-dict peers list element was not rejected" << std::endl;
 			}
 			catch (const std::invalid_argument& e)
 			{
 				exceptionThrown = true;
-				std::cout << "#0a9e8b: expected failure: " << e.what() << std::endl;
+				std::cout << "#a8f7eb: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -276,12 +276,12 @@ class test_TrackerClient
 			try
 			{
 				const AnnounceResponse resp = TrackerClient::parse_response("d5:peersld4:porti6881eeee");
-				std::cout << "#e29e5d: peers dict entry without \"ip\" was not rejected" << std::endl;
+				std::cout << "#788048: peers dict entry without \"ip\" was not rejected" << std::endl;
 			}
 			catch (const std::invalid_argument& e)
 			{
 				exceptionThrown = true;
-				std::cout << "#0a9e8b: expected failure: " << e.what() << std::endl;
+				std::cout << "#252372: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -291,12 +291,12 @@ class test_TrackerClient
 			try
 			{
 				const AnnounceResponse resp = TrackerClient::parse_response("d5:peersld2:ip11:192.168.1.1eee");
-				std::cout << "#e29e5d: peers dict entry without \"port\" was not rejected" << std::endl;
+				std::cout << "#57f026: peers dict entry without \"port\" was not rejected" << std::endl;
 			}
 			catch (const std::invalid_argument& e)
 			{
 				exceptionThrown = true;
-				std::cout << "#0a9e8b: expected failure: " << e.what() << std::endl;
+				std::cout << "#c3545f: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -306,12 +306,12 @@ class test_TrackerClient
 			try
 			{
 				const AnnounceResponse resp = TrackerClient::parse_response("d5:peersld2:ipi1e4:porti6881eeee");
-				std::cout << "#e29e5d: non-bytes \"ip\" was not rejected" << std::endl;
+				std::cout << "#63100e: non-bytes \"ip\" was not rejected" << std::endl;
 			}
 			catch (const std::invalid_argument& e)
 			{
 				exceptionThrown = true;
-				std::cout << "#0a9e8b: expected failure: " << e.what() << std::endl;
+				std::cout << "#95b25d: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -321,12 +321,12 @@ class test_TrackerClient
 			try
 			{
 				const AnnounceResponse resp = TrackerClient::parse_response("d5:peersld2:ip11:192.168.1.14:porti-1eeee");
-				std::cout << "#e29e5d: negative port was not rejected" << std::endl;
+				std::cout << "#26d195: negative port was not rejected" << std::endl;
 			}
 			catch (const std::invalid_argument& e)
 			{
 				exceptionThrown = true;
-				std::cout << "#0a9e8b: expected failure: " << e.what() << std::endl;
+				std::cout << "#64a807: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -336,12 +336,12 @@ class test_TrackerClient
 			try
 			{
 				const AnnounceResponse resp = TrackerClient::parse_response("d5:peersld2:ip11:192.168.1.14:porti70000eeee");
-				std::cout << "#e29e5d: port above 65535 was not rejected" << std::endl;
+				std::cout << "#4badfa: port above 65535 was not rejected" << std::endl;
 			}
 			catch (const std::invalid_argument& e)
 			{
 				exceptionThrown = true;
-				std::cout << "#0a9e8b: expected failure: " << e.what() << std::endl;
+				std::cout << "#c3c1b9: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -414,12 +414,12 @@ class test_TrackerClient
 			try
 			{
 				const AnnounceResponse resp = TrackerClient::parse_response("d6:peers617:01234567890123456e");
-				std::cout << "#e29e5d: 17-byte peers6 string was not rejected" << std::endl;
+				std::cout << "#9c1506: 17-byte peers6 string was not rejected" << std::endl;
 			}
 			catch (const std::invalid_argument& e)
 			{
 				exceptionThrown = true;
-				std::cout << "#0a9e8b: expected failure: " << e.what() << std::endl;
+				std::cout << "#bddd23: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -429,12 +429,12 @@ class test_TrackerClient
 			try
 			{
 				const AnnounceResponse resp = TrackerClient::parse_response("d6:peers6i1ee");
-				std::cout << "#e29e5d: non-bytes peers6 was not rejected" << std::endl;
+				std::cout << "#692d38: non-bytes peers6 was not rejected" << std::endl;
 			}
 			catch (const std::invalid_argument& e)
 			{
 				exceptionThrown = true;
-				std::cout << "#0a9e8b: expected failure: " << e.what() << std::endl;
+				std::cout << "#7986f2: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -452,12 +452,12 @@ class test_TrackerClient
 			try
 			{
 				const AnnounceResponse resp = TrackerClient::parse_response("i42e");
-				std::cout << "#e29e5d: non-dict top level was not rejected" << std::endl;
+				std::cout << "#0dc596: non-dict top level was not rejected" << std::endl;
 			}
 			catch (const std::invalid_argument& e)
 			{
 				exceptionThrown = true;
-				std::cout << "#0a9e8b: expected failure: " << e.what() << std::endl;
+				std::cout << "#838c28: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -472,12 +472,12 @@ class test_TrackerClient
 			try
 			{
 				const AnnounceResponse resp = TrackerClient::parse_response("d5:peersi1ee");
-				std::cout << "#e29e5d: non-bytes peers was not rejected" << std::endl;
+				std::cout << "#3e4c10: non-bytes peers was not rejected" << std::endl;
 			}
 			catch (const std::invalid_argument& e)
 			{
 				exceptionThrown = true;
-				std::cout << "#0a9e8b: expected failure: " << e.what() << std::endl;
+				std::cout << "#6079ad: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -488,12 +488,12 @@ class test_TrackerClient
 			try
 			{
 				const AnnounceResponse resp = TrackerClient::parse_response("d8:intervali60eextra");
-				std::cout << "#e29e5d: trailing bytes after top-level value were not rejected" << std::endl;
+				std::cout << "#b3e2ad: trailing bytes after top-level value were not rejected" << std::endl;
 			}
 			catch (const std::invalid_argument& e)
 			{
 				exceptionThrown = true;
-				std::cout << "#0a9e8b: expected failure: " << e.what() << std::endl;
+				std::cout << "#553fea: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -578,12 +578,12 @@ class test_TrackerClient
 			try
 			{
 				const AnnounceResponse resp = TrackerClient().announce(req);
-				std::cout << "#46188c: HTTP 503 was not rejected" << std::endl;
+				std::cout << "#2f0ac0: HTTP 503 was not rejected" << std::endl;
 			}
 			catch (const std::runtime_error& e)
 			{
 				exceptionThrown = true;
-				std::cout << "#0a9e8b: expected failure: " << e.what() << std::endl;
+				std::cout << "#8869dd: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -677,7 +677,7 @@ class test_TrackerClient
 			catch (const std::runtime_error& e)
 			{
 				exceptionThrown = true;
-				std::cout << "#0a9e8b: expected failure: " << e.what() << std::endl;
+				std::cout << "#a9d72d: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -722,7 +722,7 @@ class test_TrackerClient
 			catch (const std::exception& e) // BencodeParser throws invalid_argument/runtime_error/out_of_range
 			{
 				exceptionThrown = true;
-				std::cout << "#0a9e8b: expected failure: " << e.what() << std::endl;
+				std::cout << "#6265f1: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -848,7 +848,7 @@ class test_TrackerClient
 			catch (const std::exception& e)
 			{
 				threw = true;
-				std::cout << "#e29e5d: announce_all threw unexpectedly: " << e.what() << std::endl;
+				std::cout << "#075290: announce_all threw unexpectedly: " << e.what() << std::endl;
 			}
 
 			assert(!threw); // per-tracker failures must be isolated in TrackerResult, not thrown
@@ -873,7 +873,7 @@ class test_TrackerClient
 			catch (const std::exception& e) // HttpTransport throws runtime_error for non-200 statuses
 			{
 				exceptionThrown = true;
-				std::cout << "#0a9e8b: expected failure: " << e.what() << std::endl;
+				std::cout << "#8c8e64: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);

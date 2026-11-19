@@ -148,7 +148,7 @@ HttpResponse parse_http_response(const std::string& response)
 
 	if (head_end == std::string::npos)
 	{
-		throw std::runtime_error("malformed HTTP response: missing header terminator");
+		throw std::runtime_error("#894d0d: malformed HTTP response: missing header terminator");
 	}
 
 	const std::string head = response.substr(0, head_end);
@@ -160,21 +160,21 @@ HttpResponse parse_http_response(const std::string& response)
 
 	if (nl == std::string::npos)
 	{
-		throw std::runtime_error("malformed HTTP response: missing status line");
+		throw std::runtime_error("#e2d45c: malformed HTTP response: missing status line");
 	}
 
 	const std::string status_line = trim(head.substr(0, nl));
 
 	if (status_line.rfind("HTTP/", 0) != 0)
 	{
-		throw std::runtime_error("malformed HTTP status line: " + status_line);
+		throw std::runtime_error("#2af545: malformed HTTP status line: " + status_line);
 	}
 
 	const auto sp1 = status_line.find(' ');
 
 	if (sp1 == std::string::npos)
 	{
-		throw std::runtime_error("malformed HTTP status line: " + status_line);
+		throw std::runtime_error("#e79bc8: malformed HTTP status line: " + status_line);
 	}
 
 	const std::string after_version = status_line.substr(sp1 + 1); // e.g. "200 OK" or just "200"
@@ -186,12 +186,12 @@ HttpResponse parse_http_response(const std::string& response)
 	}
 	catch (const std::exception&)
 	{
-		throw std::runtime_error("malformed HTTP status line: " + status_line);
+		throw std::runtime_error("#8ffb68: malformed HTTP status line: " + status_line);
 	}
 
 	if (parsed == 0)
 	{
-		throw std::runtime_error("malformed HTTP status line: " + status_line);
+		throw std::runtime_error("#1196a5: malformed HTTP status line: " + status_line);
 	}
 
 	if (parsed < after_version.size())
@@ -229,7 +229,7 @@ HttpResponse parse_http_response(const std::string& response)
 	// --- reject unsupported framing ------------------------------------------
 	if (const auto * te = resp.header("transfer-encoding"); te && to_lower(*te).find("chunked") != std::string::npos)
 	{
-		throw std::runtime_error("chunked transfer-encoding is not supported");
+		throw std::runtime_error("#37a52a: chunked transfer-encoding is not supported");
 	}
 
 	// --- body: clamp to Content-Length if declared -------------------------
@@ -440,7 +440,7 @@ inline HttpResponse HttpTransport::get(const std::string& host, const std::strin
 
 		if (response.size() > m_config.max_response_size)
 		{
-			throw std::runtime_error("response exceeds max_response_size (" + std::to_string(m_config.max_response_size) + " bytes)");
+			throw std::runtime_error("#d4211d: response exceeds max_response_size (" + std::to_string(m_config.max_response_size) + " bytes)");
 		}
 
 		const auto head_end = response.find("\r\n\r\n");
@@ -479,7 +479,7 @@ inline HttpTransport::UrlParts HttpTransport::parse_http_url(const std::string& 
 
 	if (scheme_end == std::string::npos || to_lower(url.substr(0, scheme_end)) != "http")
 	{
-		throw std::invalid_argument("only http:// URLs are supported: " + url);
+		throw std::invalid_argument("#89b33e: only http:// URLs are supported: " + url);
 	}
 
 	const std::string rest = url.substr(scheme_end + 3);
@@ -497,7 +497,7 @@ inline HttpTransport::UrlParts HttpTransport::parse_http_url(const std::string& 
 
 		if (close_bracket == std::string::npos)
 		{
-			throw std::invalid_argument("malformed IPv6 literal in URL: " + url);
+			throw std::invalid_argument("#3e78d5: malformed IPv6 literal in URL: " + url);
 		}
 
 		host = host.substr(1, close_bracket - 1); // strip brackets for resolver.resolve
@@ -506,7 +506,7 @@ inline HttpTransport::UrlParts HttpTransport::parse_http_url(const std::string& 
 		{
 			if (hostport[close_bracket + 1] != ':')
 			{
-				throw std::invalid_argument("malformed IPv6 literal in URL: " + url);
+				throw std::invalid_argument("#3c2f78: malformed IPv6 literal in URL: " + url);
 			}
 
 			port = hostport.substr(close_bracket + 2);

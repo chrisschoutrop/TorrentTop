@@ -361,7 +361,7 @@ class Parser
 
 				if(start_ptr[0] == '-' && start_ptr[1] == '0')
 				{
-					throw std::runtime_error("#148aea: -0 in integer");
+					throw std::runtime_error("#7b3402: -0 in integer");
 				}
 
 				if(start_ptr[0] == '0')

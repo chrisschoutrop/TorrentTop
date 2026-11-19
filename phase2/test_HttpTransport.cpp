@@ -141,7 +141,7 @@ class test_HttpTransport
 				{
 					//https://stackoverflow.com/questions/15668309/c-assertion-function-to-check-that-exception-is-thrown
 					HttpResponse resp = parse_http_response(inputs_strings[i]);
-					std::cout << "#e29e5d: " << inputs_strings[i] << std::endl;
+					std::cout << "#c644a3: " << inputs_strings[i] << std::endl;
 				}
 				catch(...)
 				{
@@ -227,7 +227,7 @@ class test_HttpTransport
 				{
 					//https://stackoverflow.com/questions/15668309/c-assertion-function-to-check-that-exception-is-thrown
 					HttpResponse resp = http.get(inputs_strings[i]);
-					std::cout << "#46188c: " << inputs_strings[i] << std::endl;
+					std::cout << "#cea6a9: " << inputs_strings[i] << std::endl;
 				}
 				catch(...)
 				{
@@ -381,12 +381,12 @@ class test_HttpTransport
 			{
 				//https://stackoverflow.com/questions/15668309/c-assertion-function-to-check-that-exception-is-thrown
 				HttpResponse resp = http.get("127.0.0.1", port, "/");
-				std::cout << "#e29e5d: connect to " << port << " unexpectedly succeeded" << std::endl;
+				std::cout << "#d994f9: connect to " << port << " unexpectedly succeeded" << std::endl;
 			}
 			catch(const std::system_error& e)
 			{
 				exceptionThrown = true;
-				std::cout << "#0a9e8b: expected failure: " << e.what() << std::endl;
+				std::cout << "#6fa1ca: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -413,12 +413,12 @@ class test_HttpTransport
 			{
 				//https://stackoverflow.com/questions/15668309/c-assertion-function-to-check-that-exception-is-thrown
 				HttpResponse resp = http.get("127.0.0.1", server.port(), "/big");
-				std::cout << "#46188c: response of " << resp.body.size() << " bytes was not rejected" << std::endl;
+				std::cout << "#fd4b6c: response of " << resp.body.size() << " bytes was not rejected" << std::endl;
 			}
 			catch(const std::runtime_error& e)
 			{
 				exceptionThrown = true;
-				std::cout << "#0a9e8b: expected failure: " << e.what() << std::endl;
+				std::cout << "#5679b1: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -555,7 +555,7 @@ class test_HttpTransport
 			catch (const std::system_error& e)
 			{
 				timedOut = (e.code() == boost::asio::error::make_error_code(boost::asio::error::timed_out));
-				std::cout << "#0a9e8b: expected timeout: " << e.what() << std::endl;
+				std::cout << "#3ebb53: expected timeout: " << e.what() << std::endl;
 			}
 
 			assert(timedOut);
@@ -595,7 +595,7 @@ class test_HttpTransport
 			catch (const std::invalid_argument& e)
 			{
 				invalidArgument = true;
-				std::cout << "#0a9e8b: expected failure: " << e.what() << std::endl;
+				std::cout << "#3b4e26: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(invalidArgument);
@@ -643,7 +643,7 @@ class test_HttpTransport
 			catch (const std::system_error& e)
 			{
 				systemError = true;
-				std::cout << "#0a9e8b: expected failure: " << e.what() << std::endl;
+				std::cout << "#0dfc28: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(systemError);

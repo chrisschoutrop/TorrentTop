@@ -169,7 +169,7 @@ class TrackerClient
 		    <announce_url>?info_hash=..&peer_id=..&port=..&uploaded=..&downloaded=..&left=..&compact=1[&event=..]
 		If announce_url already contains a query string, parameters are appended with '&'.
 		*/
-		std::string build_announce_url(const AnnounceRequest& req) const
+		static std::string build_announce_url(const AnnounceRequest& req)
 		{
 			std::string query = "info_hash=" + percent_encode(req.info_hash.data(), 20);
 			query += "&peer_id=" + percent_encode(req.peer_id.data(), 20);
@@ -229,12 +229,12 @@ class TrackerClient
 			// if it does not cover the whole input, trailing unparsed bytes remain -> reject.
 			if (value.raw.size() != input.size())
 			{
-				throw std::invalid_argument("malformed tracker response: " + std::to_string(input.size() - value.raw.size()) + " trailing byte(s) after top-level value");
+				throw std::invalid_argument("#dd3de5: malformed tracker response: " + std::to_string(input.size() - value.raw.size()) + " trailing byte(s) after top-level value");
 			}
 
 			if (!value.is_dict())
 			{
-				throw std::invalid_argument("malformed tracker response: expected a bencoded dictionary");
+				throw std::invalid_argument("#1551f3: malformed tracker response: expected a bencoded dictionary");
 			}
 
 			const auto& dict = value.get_dict();
@@ -245,7 +245,7 @@ class TrackerClient
 			{
 				if (!fr->is_bytes())
 				{
-					throw std::invalid_argument("malformed tracker response: \"failure reason\" is not a byte string");
+					throw std::invalid_argument("#26f981: malformed tracker response: \"failure reason\" is not a byte string");
 				}
 
 				const auto& raw = fr->get_bytes();
@@ -258,7 +258,7 @@ class TrackerClient
 			{
 				if (!iv->is_int())
 				{
-					throw std::invalid_argument("malformed tracker response: \"interval\" is not an integer");
+					throw std::invalid_argument("#4edb5b: malformed tracker response: \"interval\" is not an integer");
 				}
 
 				resp.interval = iv->get_int();
@@ -274,7 +274,7 @@ class TrackerClient
 
 					if (raw.size() % 6 != 0)
 					{
-						throw std::invalid_argument("malformed tracker response: compact peers length " + std::to_string(raw.size()) + " is not a multiple of 6");
+						throw std::invalid_argument("#544212: malformed tracker response: compact peers length " + std::to_string(raw.size()) + " is not a multiple of 6");
 					}
 
 					resp.peers.reserve(raw.size() / 6);
@@ -300,7 +300,7 @@ class TrackerClient
 					{
 						if (!entry.is_dict())
 						{
-							throw std::invalid_argument("malformed tracker response: \"peers\" list element is not a dictionary");
+							throw std::invalid_argument("#eab63e: malformed tracker response: \"peers\" list element is not a dictionary");
 						}
 
 						const auto& d = entry.get_dict();
@@ -309,7 +309,7 @@ class TrackerClient
 
 						if (ip == nullptr || !ip->is_bytes())
 						{
-							throw std::invalid_argument("malformed tracker response: \"peers\" list element is missing a byte-string \"ip\"");
+							throw std::invalid_argument("#a54ff2: malformed tracker response: \"peers\" list element is missing a byte-string \"ip\"");
 						}
 
 						const auto& raw_ip = ip->get_bytes();
@@ -318,14 +318,14 @@ class TrackerClient
 
 						if (port_v == nullptr || !port_v->is_int())
 						{
-							throw std::invalid_argument("malformed tracker response: \"peers\" list element is missing an integer \"port\"");
+							throw std::invalid_argument("#f6bc0d: malformed tracker response: \"peers\" list element is missing an integer \"port\"");
 						}
 
 						const int64_t port = port_v->get_int();
 
 						if (port < 0 || port > 65535)
 						{
-							throw std::invalid_argument("malformed tracker response: \"peers\" list element has out-of-range port " + std::to_string(port));
+							throw std::invalid_argument("#ff6184: malformed tracker response: \"peers\" list element has out-of-range port " + std::to_string(port));
 						}
 
 						resp.peers.push_back(Peer{std::string(reinterpret_cast<const char*>(raw_ip.data()), raw_ip.size()), static_cast<uint16_t>(port)});
@@ -333,7 +333,7 @@ class TrackerClient
 				}
 				else
 				{
-					throw std::invalid_argument("malformed tracker response: \"peers\" is neither a byte string nor a list");
+					throw std::invalid_argument("#2d4e22: malformed tracker response: \"peers\" is neither a byte string nor a list");
 				}
 			}
 
@@ -342,14 +342,14 @@ class TrackerClient
 			{
 				if (!p6->is_bytes())
 				{
-					throw std::invalid_argument("malformed tracker response: \"peers6\" is not a byte string");
+					throw std::invalid_argument("#3dda13: malformed tracker response: \"peers6\" is not a byte string");
 				}
 
 				const auto& raw = p6->get_bytes();
 
 				if (raw.size() % 18 != 0)
 				{
-					throw std::invalid_argument("malformed tracker response: peers6 length " + std::to_string(raw.size()) + " is not a multiple of 18");
+					throw std::invalid_argument("#77e284: malformed tracker response: peers6 length " + std::to_string(raw.size()) + " is not a multiple of 18");
 				}
 
 				resp.peers.reserve(resp.peers.size() + raw.size() / 18);
@@ -380,7 +380,7 @@ class TrackerClient
 
 			if (http_resp.status_code != 200)
 			{
-				throw std::runtime_error("tracker returned HTTP " + std::to_string(http_resp.status_code) + " for " + url);
+				throw std::runtime_error("#d56990: tracker returned HTTP " + std::to_string(http_resp.status_code) + " for " + url);
 			}
 
 			return parse_response(http_resp.body);
@@ -393,7 +393,7 @@ class TrackerClient
 		{
 			const std::string url = build_announce_url(req);
 
-			m_http.async_get(io, url, [on_complete = std::move(on_complete), url](std::exception_ptr ex, HttpResponse http_resp)
+			m_http.async_get(io, url, [on_complete = std::move(on_complete), url](std::exception_ptr ex, const HttpResponse & http_resp)
 			{
 				if (ex)
 				{
