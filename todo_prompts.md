@@ -1,0 +1,23 @@
+<prompt>
+Can you critically review everything in phase2/TrackerClient.hpp for me? Assume that inputs can be malicious, since this is a BitTorrent program and there is a high risk of malicious input files or peers. Write the potential security problems in markdown to security_problems_TrackerClient.md.
+</prompt>
+
+<prompt>
+Can you critically review everything in phase2/HttpTransport.hpp for me? Assume that inputs can be malicious, since this is a BitTorrent program and there is a high risk of malicious input files or peers. Write the potential security problems in markdown to security_problems_HttpTransport.md.
+</prompt>
+
+<prompt>
+Can you fix the security problems mentioned in security_problems_TrackerClient.md? Make sure that check.sh and all compile_run.sh still pass.
+</prompt>
+
+<prompt>
+Can you fix the security problems mentioned in security_problems_HttpTransport.md? Make sure that check.sh and all compile_run.sh still pass.
+</prompt>
+
+<prompt>
+Can you critically review everything in phase2 Assume that inputs can be malicious, since this is a BitTorrent program and there is a high risk of malicious input files or peers. Write the potential security problems in markdown to security_problems_phase2.md.
+</prompt>
+
+<prompt>
+Can you fix the security problems mentioned in security_problems_phase2.md? Make sure that check.sh and all compile_run.sh still pass.
+</prompt>
