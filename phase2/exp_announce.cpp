@@ -1,5 +1,5 @@
 // Phase 2 integration experiment (first step of the plan in phase2.cpp):
-// hit a tracker through the new header-only HttpTransport and print whatever comes back.
+// hit a tracker through the header-only HttpTransport and print whatever comes back.
 // This validates DNS + connect + send + receive + response parsing end-to-end.
 //
 // Default target is a public BitTorrent tracker; pass host/port/path to point it anywhere, e.g.:

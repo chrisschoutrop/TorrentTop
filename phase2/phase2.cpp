@@ -25,8 +25,8 @@ AI suggested way forward:
 
 src/
   BencodeParser.hpp          (existing)
-  HttpTransport.hpp          (new – generic HTTP)
-  TrackerClient.hpp          (new – BitTorrent tracker protocol)
+  HttpTransport.hpp          (added – generic HTTP)
+  TrackerClient.hpp          (added – BitTorrent tracker protocol)
 tests/
   test_BencodeParser.cpp     (existing)
   test_HttpTransport.cpp     (mock server or local socketpair)

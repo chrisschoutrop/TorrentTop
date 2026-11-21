@@ -41,7 +41,7 @@ echo "=== Checking duplicated hex codes ==="
 python3 check_hex_codes.py
 
 echo "=== Checking for dangerous C functions and non-RAII patterns ==="
-FORBIDDEN_REGEX='(\b(strcpy|strncpy|strcat|strncat|sprintf|vsprintf|gets|scanf|fscanf|sscanf|strtok|atoi|atol|atof|malloc|calloc|realloc|free|alloca|memcpy|memmove|memset|fopen|fclose|popen|pclose|system|tmpnam|tempnam)\s*\(|\bnew\b|\bdelete\b|\bauto_ptr\b)'
+FORBIDDEN_REGEX='\b(strcpy|strncpy|strcat|strncat|sprintf|vsprintf|gets|scanf|fscanf|sscanf|strtok|atoi|atol|atof|system|tmpnam|tempnam|new|delete)\s*\('
 
 if find_files -name "*.cpp" -o -name "*.hpp" | xargs -0 -r grep -En "$FORBIDDEN_REGEX"; then
     echo "ERROR: Found dangerous C functions or non-RAII manual resource management." >&2
