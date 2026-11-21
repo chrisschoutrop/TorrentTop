@@ -90,9 +90,9 @@ class TrackerSession
 			const auto remote = socket_.remote_endpoint();
 			std::cout << "Connected to " << remote.address() << ":" << remote.port() << "\n";
 
-			boost::asio::async_write(socket_, boost::asio::buffer(request_), [this](const boost::system::error_code & ec, std::size_t)
+			boost::asio::async_write(socket_, boost::asio::buffer(request_), [this](const boost::system::error_code & err, std::size_t)
 			{
-				on_write(ec);
+				on_write(err);
 			});
 		}
 
@@ -105,9 +105,9 @@ class TrackerSession
 			}
 
 			std::cout << "--- Sent announce request ---\n" << request_ << "\n";
-			socket_.async_read_some(boost::asio::buffer(read_buf_), [this](const boost::system::error_code & ec, std::size_t n)
+			socket_.async_read_some(boost::asio::buffer(read_buf_), [this](const boost::system::error_code & err, std::size_t n)
 			{
-				on_read(ec, n);
+				on_read(err, n);
 			});
 		}
 
