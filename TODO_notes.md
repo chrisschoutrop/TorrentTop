@@ -16,8 +16,14 @@ Can you critically review everything in phase2/HttpTransport.hpp for me? Assume 
 Can you critically review everything in phase1/BencodeParser.hpp for me? Assume that inputs can be malicious, since this is a BitTorrent program and there is a high risk of malicious input files or peers. Write the potential security problems in markdown to security_problems_BencodeParser.md.
 </prompt>
 
-🕒<prompt>
+❌<prompt>
 Can you fix the security problems mentioned in security_problems_TrackerClient.md? Make sure that check.sh all compile_run.sh still pass. 
+</prompt>
+
+🕒<prompt>
+Can you fix the following security issue layed out in security_problems_TrackerClient.md:
+
+H1. Memory amplification: no cap on bencode element count or peer list size
 </prompt>
 
 🕒<prompt>

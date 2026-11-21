@@ -29,6 +29,7 @@ class test_TrackerClient
 			test_parse_response_peers6_valid();
 			test_parse_response_combined_peers_and_peers6();
 			test_parse_response_peers6_malformed();
+			test_parse_response_peer_limits();
 			test_parse_response_invalid();
 			test_announce_local_server();
 			test_announce_failure_reason();
@@ -438,6 +439,98 @@ class test_TrackerClient
 			}
 
 			assert(exceptionThrown);
+		}
+
+		static void test_parse_response_peer_limits()
+		{
+			/*
+			    Memory-amplification caps (H1): a tracker must not be able to force unbounded heap growth.
+			    - compact "peers" with more than kMaxPeersPerResponse 6-byte groups -> reject
+			    - list-form "peers" with more than kMaxPeersPerResponse entries -> reject
+			    - combined "peers" + "peers6" exceeding the total cap -> reject
+			    A few peers below the limit must still parse fine.
+			*/
+			const std::size_t limit = kMaxPeersPerResponse; // file-scope constant from TrackerClient.hpp
+
+			// 1) Compact peers just above the cap: (limit+1) groups of 6 bytes.
+			bool exceptionThrown = false;
+
+			try
+			{
+				std::string body = "d5:peers" + std::to_string((limit + 1) * 6) + ":";
+				body.append((limit + 1) * 6, '\x01'); // arbitrary bytes; only the count matters here
+				body += "e";
+
+				const AnnounceResponse resp = TrackerClient::parse_response(body);
+				std::cout << "#a1b2c3: compact peers above limit were not rejected" << std::endl;
+			}
+			catch (const std::invalid_argument& e)
+			{
+				exceptionThrown = true;
+				std::cout << "#d4e5f6: expected failure: " << e.what() << std::endl;
+			}
+
+			assert(exceptionThrown);
+
+			// 2) List-form peers just above the cap.
+			exceptionThrown = false;
+
+			try
+			{
+				std::string body = "d5:peersl";
+				const std::string entry = "d2:ip1:14:porti6881ee"; // 19-byte dict entry
+
+				for (std::size_t i = 0; i <= limit; ++i)
+				{
+					body += entry;
+				}
+
+				body += "ee";
+
+				const AnnounceResponse resp = TrackerClient::parse_response(body);
+				std::cout << "#b7a8c9: list peers above limit were not rejected" << std::endl;
+			}
+			catch (const std::invalid_argument& e)
+			{
+				exceptionThrown = true;
+				std::cout << "#e0f1a2: expected failure: " << e.what() << std::endl;
+			}
+
+			assert(exceptionThrown);
+
+			// 3) Combined peers + peers6 exceeding the total cap.
+			exceptionThrown = false;
+
+			try
+			{
+				const std::size_t half = limit / 2 + 1; // each field alone is under the cap...
+				std::string body = "d5:peers" + std::to_string(half * 6) + ":";
+				body.append(half * 6, '\x01');
+				body += "6:peers6" + std::to_string((half + 1) * 18) + ":"; // ...but together they exceed it
+				body.append((half + 1) * 18, '\x02');
+				body += "e";
+
+				const AnnounceResponse resp = TrackerClient::parse_response(body);
+				std::cout << "#c3d4e5: combined peers+peers6 above limit were not rejected" << std::endl;
+			}
+			catch (const std::invalid_argument& e)
+			{
+				exceptionThrown = true;
+				std::cout << "#f6a7b8: expected failure: " << e.what() << std::endl;
+			}
+
+			assert(exceptionThrown);
+
+			// 4) A small peer list below the cap still parses.
+			std::string body_ok = "d5:peers12:";
+			const char peers_bytes[] = {static_cast<char>(0x01), static_cast<char>(0x02), '\x03', '\x04', static_cast<char>(0x1A), static_cast<char>(0xE1),
+			                            '\x0A', '\x00', '\x00', static_cast<char>(0xFF), '\x01', static_cast<char>(0xBB)
+			                           };
+			body_ok.append(peers_bytes, sizeof(peers_bytes));
+			body_ok += "e";
+
+			const AnnounceResponse resp_ok = TrackerClient::parse_response(body_ok);
+			assert(resp_ok.peers.size() == 2);
 		}
 
 		static void test_parse_response_invalid()

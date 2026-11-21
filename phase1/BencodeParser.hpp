@@ -150,6 +150,9 @@ class Parser
 		int64_t m_pos = 0;
 		std::span<const std::byte> m_input;
 
+		int64_t m_element_count = 0; // cumulative number of values parsed (memory-amplification guard)
+		static constexpr int64_t m_max_elements = 1'000'000; // hard cap on total bencode elements per parse
+
 		int64_t m_recursion_depth = 0;
 		static constexpr int64_t m_max_recursion_depth = 128;
 		struct DepthGuard
@@ -187,6 +190,7 @@ class Parser
 		BencodeValue parse()
 		{
 			m_recursion_depth = 0;
+			m_element_count = 0;
 			BencodeValue result = parse_value();
 
 			if((size_t)m_pos != m_input.size())
@@ -199,6 +203,14 @@ class Parser
 	private:
 		BencodeValue parse_value()
 		{
+			// Memory-amplification guard: every parsed value becomes a heap object (std::variant + span, plus
+			// per-key allocations for dict entries). Cap the total element count so a small input cannot force
+			// unbounded heap growth (~30x+ amplification from lists of tiny values).
+			if (++m_element_count > m_max_elements)
+			{
+				throw std::runtime_error("#b7c4e2: bencode element limit exceeded (max " + std::to_string(m_max_elements) + " elements)");
+			}
+
 			DepthGuard guard(m_recursion_depth);
 			size_t start_pos = m_pos;
 

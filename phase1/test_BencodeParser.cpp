@@ -15,6 +15,7 @@ class test_Parser
 			test_integer_invalid();
 			test_bytes_invalid();
 			test_parse_invalid();
+			test_element_limit();
 			test_random_inputs();
 		}
 		static std::vector<std::byte> convert_string_to_bytes(const std::string& inputs_string)
@@ -440,6 +441,64 @@ class test_Parser
 				}
 				assert(exceptionThrown);
 			}
+		}
+
+		static void test_element_limit()
+		{
+			/*
+			Memory-amplification guard (H1/M1): a list of tiny values must not be able to force
+			unbounded heap growth. The element budget counts every parsed value, including the top-level
+			list itself, so a top-level list may hold at most m_max_elements - 1 children:
+			    - a list with m_max_elements children -> total count reaches max+1 -> rejected
+			    - a list with m_max_elements - 1 children -> total count is exactly max -> accepted
+			test_Parser is a friend of Parser, so the private limit constant is accessible here.
+			*/
+			const int64_t max_elements = Parser::m_max_elements;
+
+			// 1) At the cap boundary (max elements as children): must throw (std::runtime_error from parse_value()).
+			bool exceptionThrown = false;
+
+			try
+			{
+				std::string input = "l";
+				input.reserve(3 * max_elements + 1);
+
+				for (int64_t i = 0; i < max_elements; ++i)
+				{
+					input += "0:"; // one empty-string element per iteration
+				}
+
+				input += "e";
+
+				std::vector<std::byte> bytes = convert_string_to_bytes(input);
+				Parser P(bytes);
+				BencodeValue result = P.parse();
+				std::cout << "#5d8f2a: list above the element limit was not rejected" << std::endl;
+			}
+			catch (const std::exception& e)
+			{
+				exceptionThrown = true;
+				std::cout << "#7c3e91: expected failure: " << e.what() << std::endl;
+			}
+
+			assert(exceptionThrown);
+
+			// 2) One below the cap boundary (max-1 children, total count exactly max): must still parse.
+			std::string input_ok = "l";
+			input_ok.reserve(3 * (max_elements - 1) + 1);
+
+			for (int64_t i = 0; i < max_elements - 1; ++i)
+			{
+				input_ok += "0:";
+			}
+
+			input_ok += "e";
+
+			std::vector<std::byte> bytes_ok = convert_string_to_bytes(input_ok);
+			Parser P_ok(bytes_ok);
+			BencodeValue result_ok = P_ok.parse();
+			assert(result_ok.is_list());
+			assert(result_ok.get_list().size() == static_cast<size_t>(max_elements - 1));
 		}
 
 		static void test_random_inputs()

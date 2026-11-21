@@ -43,6 +43,11 @@ Usage:
 #include <utility>
 #include <vector>
 
+// Hard cap on the number of peers accepted per announce response (across "peers" and "peers6").
+// Real trackers return at most a few thousand; this bounds heap growth from an attacker-controlled
+// compact peer string (each 6-byte group becomes a ~50-100 B Peer object) to ~6.5 MB worst case.
+static constexpr std::size_t kMaxPeersPerResponse = 65536;
+
 // A single peer from a tracker response: IP address as a string (dotted-quad IPv4, IPv6 literal, or hostname) + port in host byte order.
 struct Peer
 {
@@ -277,7 +282,14 @@ class TrackerClient
 						throw std::invalid_argument("#544212: malformed tracker response: compact peers length " + std::to_string(raw.size()) + " is not a multiple of 6");
 					}
 
-					resp.peers.reserve(raw.size() / 6);
+					const std::size_t peer_count = raw.size() / 6;
+
+					if (peer_count > kMaxPeersPerResponse)
+					{
+						throw std::invalid_argument("#3f8a19: malformed tracker response: compact peers count " + std::to_string(peer_count) + " exceeds limit of " + std::to_string(kMaxPeersPerResponse));
+					}
+
+					resp.peers.reserve(peer_count);
 
 					for (std::size_t i = 0; i < raw.size(); i += 6)
 					{
@@ -293,6 +305,11 @@ class TrackerClient
 				else if (pv->is_list())
 				{
 					const auto& list = pv->get_list();
+
+					if (list.size() > kMaxPeersPerResponse)
+					{
+						throw std::invalid_argument("#c0d5f6: malformed tracker response: peers list size " + std::to_string(list.size()) + " exceeds limit of " + std::to_string(kMaxPeersPerResponse));
+					}
 
 					resp.peers.reserve(list.size());
 
@@ -352,7 +369,14 @@ class TrackerClient
 					throw std::invalid_argument("#77e284: malformed tracker response: peers6 length " + std::to_string(raw.size()) + " is not a multiple of 18");
 				}
 
-				resp.peers.reserve(resp.peers.size() + raw.size() / 18);
+				const std::size_t p6_count = raw.size() / 18;
+
+				if (p6_count > kMaxPeersPerResponse || resp.peers.size() > kMaxPeersPerResponse - p6_count)
+				{
+					throw std::invalid_argument("#9e2b7a: malformed tracker response: total peer count exceeds limit of " + std::to_string(kMaxPeersPerResponse));
+				}
+
+				resp.peers.reserve(resp.peers.size() + p6_count);
 
 				for (std::size_t i = 0; i < raw.size(); i += 18)
 				{
