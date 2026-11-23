@@ -474,9 +474,18 @@ inline HttpResponse HttpTransport::get(const std::string& host, const std::strin
 			const auto content_length = content_length_of_head(response.substr(0, head_end));
 			const auto body_start = head_end + 4;
 
-			// Done once the declared Content-Length is fully received.
+			// M1: a declared Content-Length above the configured cap can never be satisfied within the read
+			// budget (and would overflow size_t arithmetic), so reject it up front instead of reading on.
+			if (content_length.has_value() && *content_length > m_config.max_response_size)
+			{
+				throw std::runtime_error("#6fff34: Content-Length exceeds max_response_size");
+			}
+
+			// Done once the declared Content-Length is fully received. Checked arithmetic: subtracting
+			// body_start (guarded by response.size() >= body_start) can never overflow, unlike the old
+			// `body_start + *content_length` which wrapped for huge declared lengths and broke out early.
 			// Without one we rely on "Connection: close" and keep reading until EOF (bounded by max_response_size).
-			if (content_length.has_value() && response.size() >= body_start + *content_length)
+			if (content_length.has_value() && response.size() >= body_start && *content_length <= response.size() - body_start)
 			{
 				break;
 			}
@@ -743,9 +752,19 @@ inline void HttpTransport::async_start_read(const std::shared_ptr<AsyncSession>&
 			const auto content_length = content_length_of_head(session->response.substr(0, head_end));
 			const auto body_start = head_end + 4;
 
-			// Done once the declared Content-Length is fully received.
+			// M1: a declared Content-Length above the configured cap can never be satisfied within the read
+			// budget (and would overflow size_t arithmetic), so reject it up front instead of reading on.
+			if (content_length.has_value() && *content_length > session->max_response_size)
+			{
+				async_deliver(session, std::make_exception_ptr(std::runtime_error("Content-Length exceeds max_response_size")));
+				return;
+			}
+
+			// Done once the declared Content-Length is fully received. Checked arithmetic: subtracting
+			// body_start (guarded by response.size() >= body_start) can never overflow, unlike the old
+			// `body_start + *content_length` which wrapped for huge declared lengths and broke out early.
 			// Without one we rely on "Connection: close" and keep reading until EOF (bounded by max_response_size).
-			if (content_length.has_value() && session->response.size() >= body_start + *content_length)
+			if (content_length.has_value() && session->response.size() >= body_start && *content_length <= session->response.size() - body_start)
 			{
 				async_finish(session);
 				return;

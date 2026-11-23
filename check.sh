@@ -49,7 +49,13 @@ if find_files -name "*.cpp" -o -name "*.hpp" | xargs -0 -r grep -En "$FORBIDDEN_
 fi
 
 echo "=== Check that all are OK ==="
-bash phase1/compile_run.sh
-bash phase2/compile_run.sh
+timeout 120s bash phase1/compile_run.sh
+if [[ $? -ne 0 ]]; then
+    echo "ERROR in phase1/compile_run.sh"
+fi
+timeout 120s bash phase2/compile_run.sh
+if [[ $? -ne 0 ]]; then
+    echo "ERROR in phase2/compile_run.sh"
+fi
 
 echo "=== End of checks ==="

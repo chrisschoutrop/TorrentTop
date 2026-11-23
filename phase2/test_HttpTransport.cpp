@@ -29,6 +29,8 @@ class test_HttpTransport
 			test_url_ipv6_and_port();
 			test_get_connection_refused();
 			test_max_response_size();
+			test_content_length_overflow_rejected();
+			test_async_content_length_overflow_rejected();
 			test_async_get_local_server();
 			test_async_get_timeout();
 			test_async_get_errors();
@@ -536,6 +538,62 @@ class test_HttpTransport
 			}
 
 			assert(exceptionThrown);
+		}
+
+		static void test_content_length_overflow_rejected()
+		{
+			/*
+			M1 regression: a tracker declaring Content-Length: ULLONG_MAX with only a few body bytes used to
+			make `body_start + *content_length` wrap size_t, so the read loop broke out immediately and the
+			truncated response was returned as if complete. The client must now reject it up front.
+			*/
+			local_test_server server("HTTP/1.1 200 OK\r\n"
+			                         "Content-Length: 18446744073709551615\r\n"
+			                         "\r\nd1e");
+
+			HttpTransport http;
+
+			bool exceptionThrown = false;
+
+			try
+			{
+				http.get("127.0.0.1", server.port(), "/announce?info_hash=abc");
+			}
+			catch (const std::runtime_error& e)
+			{
+				exceptionThrown = true;
+				std::cout << "#a3f9c2: expected failure: " << e.what() << std::endl;
+			}
+
+			assert(exceptionThrown);
+		}
+
+		static void test_async_content_length_overflow_rejected()
+		{
+			/*
+			M1 regression (async path): same attack as above, but through async_get. The callback must fire
+			exactly once with an exception instead of a truncated response.
+			*/
+			local_test_server server("HTTP/1.1 200 OK\r\n"
+			                         "Content-Length: 18446744073709551615\r\n"
+			                         "\r\nd1e");
+
+			HttpTransport http;
+			boost::asio::io_context io;
+
+			std::exception_ptr ex;
+			int calls = 0;
+
+			http.async_get(io, "127.0.0.1", server.port(), "/announce?info_hash=abc", [&ex, &calls](std::exception_ptr e, HttpResponse)
+			{
+				ex = std::move(e);
+				calls++;
+			});
+
+			io.run(); // drives the async operations to completion (no-op if already done)
+
+			assert(calls == 1);
+			assert(ex != nullptr);
 		}
 
 		static void test_parse_random_inputs()
