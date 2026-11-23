@@ -29,6 +29,7 @@ class test_HttpTransport
 			test_get_no_content_length_split_writes();
 			test_url_ipv6_and_port();
 			test_get_connection_refused();
+			test_unresponsive_endpoint_is_bounded();
 			test_max_response_size();
 			test_content_length_overflow_rejected();
 			test_async_content_length_overflow_rejected();
@@ -509,6 +510,66 @@ class test_HttpTransport
 			}
 
 			assert(exceptionThrown);
+		}
+
+		static void test_unresponsive_endpoint_is_bounded()
+		{
+			/*
+			M3 regression: an endpoint that never responds must not pin get() for the OS tcp_syn_retries window
+			(~15-75 s) or longer. We build a local unresponsive endpoint: an acceptor with backlog 1 whose single
+			accept-queue slot is filled by a filler connection that is never accepted(). What happens to the next
+			SYN depends on kernel policy (net.ipv4.tcp_abort_on_overflow):
+			  - =0 (this machine, verified empirically): the handshake completes into the overflow queue, so
+			    connect_with_timeout() returns success immediately and get() proceeds to read from a peer that never
+			    answers; bounded_read() must then report timed_out within min(read_timeout, request budget) instead of
+			    hanging in Asio's sync recv (which would poll forever after SO_RCVTIMEO's EAGAIN).
+			  - =1: the kernel RSTs the SYN -> fast connect failure.
+			Either way the core guarantee is timing: get() must return with a timeout well under the OS SYN-retry
+			window. A true SYN blackhole needs netfilter/root and cannot be created deterministically in a unit test,
+			so the connect deadline branch itself is exercised only on kernels that drop the overflowed SYN.
+			*/
+			boost::asio::io_context io;
+			boost::system::error_code ec;
+			boost::asio::ip::tcp::acceptor acceptor(io);
+
+			acceptor.open(boost::asio::ip::tcp::v4(), ec);
+			assert(!ec);
+
+			acceptor.set_option(boost::asio::socket_base::reuse_address(true));
+			acceptor.listen(1, ec); // backlog 1: exactly one connection may sit in the accept queue
+			assert(!ec);
+
+			const std::string port = std::to_string(acceptor.local_endpoint(ec).port());
+			assert(!ec);
+
+			// Occupy the single accept-queue slot with a connection that is never accepted(): the endpoint stays unresponsive.
+			boost::asio::ip::tcp::socket filler(io);
+			filler.connect(boost::asio::ip::tcp::endpoint(boost::asio::ip::make_address("127.0.0.1"), acceptor.local_endpoint(ec).port()), ec);
+			assert(!ec); // loopback always works; the handshake completes and parks in the queue
+
+			HttpTransport::Config config;
+			config.connect_timeout = std::chrono::milliseconds(500); // short: any connect wait must be bounded by this, not OS SYN retries
+			config.read_timeout = std::chrono::seconds(1);          // a silent peer must time out a single read within this
+			config.request_timeout = std::chrono::seconds(2);       // overall budget (M2)
+			HttpTransport http(config);
+
+			const auto start = std::chrono::steady_clock::now();
+			bool timedOut = false;
+
+			try
+			{
+				http.get("127.0.0.1", port, "/");
+			}
+			catch (const std::system_error& e)
+			{
+				timedOut = (e.code() == boost::asio::error::make_error_code(boost::asio::error::timed_out));
+				std::cout << "expected timeout against unresponsive endpoint: " << e.what() << std::endl;
+			}
+
+			const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
+
+			assert(timedOut);
+			assert(elapsed_ms < 5000); // bounded by config, not the OS SYN-retry window (~15-75 s) or an unbounded read
 		}
 
 		static void test_max_response_size()
