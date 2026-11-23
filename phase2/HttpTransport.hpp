@@ -305,7 +305,12 @@ class HttpTransport
 			std::chrono::milliseconds connect_timeout{5000}; // M3: bounds each connect attempt (poll(2) deadline), never the OS SYN-retry window
 			std::chrono::milliseconds read_timeout{10000};   // bounds a single read/write operation, not the whole request
 			std::chrono::milliseconds request_timeout{30000}; // M2: overall wall-clock budget for the whole request (resolve+connect+write+read)
-			std::size_t max_response_size = 8 * 1024 * 1024; // hard cap on total response bytes
+			// L2: real tracker announce replies are < 100 KB, so the old 8 MiB default let a single malicious peer — or an
+			// uncapped fan-out of them — allocate hundreds of MB from small network input (parse_http_response() transiently
+			// doubles that while copying the body). The tracker-sized default below bounds per-response memory; raise it
+			// explicitly when larger responses are expected, and cap the number of concurrent in-flight requests at the
+			// caller level (this class is stateless across requests and cannot count them itself).
+			std::size_t max_response_size = 1 * 1024 * 1024; // hard cap on total response bytes per request
 			std::string user_agent{"TorrentTop/0.1"};
 		};
 

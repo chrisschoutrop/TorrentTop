@@ -41,6 +41,7 @@ class test_HttpTransport
 			test_async_get_errors();
 			test_async_throwing_callback_does_not_terminate();
 			test_large_head_response_is_bounded();
+			test_default_max_response_size_bounds_tracker_traffic();
 			test_parse_random_inputs();
 		}
 
@@ -1213,6 +1214,35 @@ class test_HttpTransport
 			assert(resp.status_code == 200);
 			assert(resp.body.size() == body.size()); // full body received, nothing lost or truncated
 			assert(elapsed_ms < 8000);              // linear scan: well under the old quadratic cost (tens of seconds)
+		}
+
+		static void test_default_max_response_size_bounds_tracker_traffic()
+		{
+			/*
+			L2 regression: real tracker announce replies are < 100 KB, so the default max_response_size was lowered from
+			8 MiB to 1 MiB — an uncapped fan-out of malicious peers could otherwise allocate hundreds of MB from small
+			network input. A declared Content-Length above the new default must be rejected up front (M1) as soon as the
+			head arrives, without reading the body; under the old 8 MiB default this same response would have been accepted.
+			*/
+			local_test_server server("HTTP/1.1 200 OK\r\n"
+			                         "Content-Length: 2000000\r\n" // > 1 MiB default, < old 8 MiB default
+			                         "\r\nd1e");
+
+			HttpTransport http; // default config: the lowered cap must apply without any explicit configuration
+
+			bool exceptionThrown = false;
+
+			try
+			{
+				http.get("127.0.0.1", server.port(), "/announce?info_hash=abc");
+			}
+			catch (const std::runtime_error& e)
+			{
+				exceptionThrown = true;
+				std::cout << "#4d8f1a: expected failure: " << e.what() << std::endl;
+			}
+
+			assert(exceptionThrown);
 		}
 
 
