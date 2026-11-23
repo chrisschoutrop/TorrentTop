@@ -8,7 +8,8 @@ Responsibilities (no knowledge of BitTorrent at all):
     - DNS resolve -> connect (try each endpoint) -> send request -> read full response
     - parses the HTTP status line + headers
     - returns body bytes
-    - timeouts for connect/read/write via SO_RCVTIMEO/SO_SNDTIMEO, plus a max-response-size guard
+    - timeouts for connect/read/write via SO_RCVTIMEO/SO_SNDTIMEO; the whole request is additionally bounded by
+      Config::request_timeout as an overall wall-clock budget (M2), plus a max-response-size guard
 
 Header-only: all definitions are inline. Built on Boost.Asio (already used in exp_boost_asio.cpp).
 
@@ -292,6 +293,7 @@ class HttpTransport
 		{
 			std::chrono::milliseconds connect_timeout{5000}; // also bounds the blocking connect()
 			std::chrono::milliseconds read_timeout{10000};   // per socket read, not total
+			std::chrono::milliseconds request_timeout{30000}; // M2: overall wall-clock budget for the whole request (resolve+connect+write+read)
 			std::size_t max_response_size = 8 * 1024 * 1024; // hard cap on total response bytes
 			std::string user_agent{"TorrentTop/0.1"};
 		};
@@ -308,8 +310,10 @@ class HttpTransport
 		// Asynchronous GET on a caller-owned io_context (Boost.Asio, callback-based; no threads added here):
 		// resolve -> connect (try each endpoint) -> write request -> read full response. The resolve/connect phase is
 		// bounded by Config::connect_timeout and the write/read phase by Config::read_timeout (re-armed on every read
-		// progress); expiry delivers std::system_error(boost::asio::error::timed_out). on_complete is invoked at most
-		// once, with a non-null exception_ptr on failure (URL/parse errors included) and the parsed HttpResponse on success.
+		// progress); expiry delivers std::system_error(boost::asio::error::timed_out). In addition, M2: the whole request
+		// is bounded by Config::request_timeout as an overall wall-clock budget, so a slow-drip server that keeps each
+		// individual read under read_timeout cannot pin the session indefinitely. on_complete is invoked at most once, with
+		// a non-null exception_ptr on failure (URL/parse errors included) and the parsed HttpResponse on success.
 		void async_get(boost::asio::io_context& io, const std::string& host, const std::string& port, const std::string& path_and_query, std::function<void(std::exception_ptr, HttpResponse)> on_complete) const;
 
 		// Convenience overload for "http://host[:port]/path[?query]"; delegates to the (io, host, port, ...) form.
@@ -344,6 +348,7 @@ class HttpTransport
 
 			std::chrono::milliseconds connect_timeout{5000};
 			std::chrono::milliseconds read_timeout{10000};
+			std::chrono::steady_clock::time_point deadline{}; // M2: overall wall-clock budget for the whole request
 			std::size_t max_response_size = 0;
 
 			std::function<void(std::exception_ptr, HttpResponse)> on_complete;
@@ -375,6 +380,10 @@ inline HttpResponse HttpTransport::get(const std::string& host, const std::strin
 	const std::string request = make_request(host, port, path_and_query, m_config.user_agent);
 	const std::string path = (path_and_query.empty() || path_and_query.front() != '/') ? "/" + path_and_query : path_and_query;
 
+	// M2: overall wall-clock budget for the whole request. A slow-drip server that keeps every individual read
+	// under read_timeout can still pin the read loop indefinitely, so abort once this total time is exceeded.
+	const auto deadline = std::chrono::steady_clock::now() + m_config.request_timeout;
+
 	// --- DNS resolve -------------------------------------------------------------
 	boost::asio::io_context io; // executor holder only; all operations below are synchronous
 	boost::system::error_code ec;
@@ -393,6 +402,12 @@ inline HttpResponse HttpTransport::get(const std::string& host, const std::strin
 
 	for (const auto& ep : endpoints)
 	{
+		// M2: the whole request is budgeted; don't spend more than that on connect attempts.
+		if (std::chrono::steady_clock::now() > deadline)
+		{
+			throw std::system_error(boost::asio::error::make_error_code(boost::asio::error::timed_out), "request exceeded the total time budget");
+		}
+
 		socket.open(ep.endpoint().protocol(), ec);
 
 		if (ec)
@@ -489,6 +504,13 @@ inline HttpResponse HttpTransport::get(const std::string& host, const std::strin
 			{
 				break;
 			}
+		}
+
+		// M2: a slow-drip server that keeps every individual read under read_timeout can still pin this loop
+		// indefinitely; abort once the overall request budget is exceeded (complete responses break out above).
+		if (std::chrono::steady_clock::now() > deadline)
+		{
+			throw std::system_error(boost::asio::error::make_error_code(boost::asio::error::timed_out), "request exceeded the total time budget");
 		}
 	}
 
@@ -771,6 +793,14 @@ inline void HttpTransport::async_start_read(const std::shared_ptr<AsyncSession>&
 			}
 		}
 
+		// M2: a slow-drip server that keeps every individual read under read_timeout can still pin this loop
+		// indefinitely; abort once the overall request budget is exceeded (complete responses finish above).
+		if (std::chrono::steady_clock::now() > session->deadline)
+		{
+			async_deliver(session, std::make_exception_ptr(std::system_error(boost::asio::error::make_error_code(boost::asio::error::timed_out), "request exceeded the total time budget")));
+			return;
+		}
+
 		async_start_read(session); // read the next chunk (re-arms the timeout)
 	});
 }
@@ -799,6 +829,7 @@ inline void HttpTransport::async_get(boost::asio::io_context& io, const std::str
 	session->port = port;
 	session->connect_timeout = m_config.connect_timeout;
 	session->read_timeout = m_config.read_timeout;
+	session->deadline = std::chrono::steady_clock::now() + m_config.request_timeout; // M2: overall wall-clock budget
 	session->max_response_size = m_config.max_response_size;
 
 	try
@@ -821,6 +852,7 @@ inline void HttpTransport::async_get(boost::asio::io_context& io, const std::str
 	session->on_complete = std::move(on_complete);
 	session->connect_timeout = m_config.connect_timeout;
 	session->read_timeout = m_config.read_timeout;
+	session->deadline = std::chrono::steady_clock::now() + m_config.request_timeout; // M2: overall wall-clock budget
 	session->max_response_size = m_config.max_response_size;
 
 	try

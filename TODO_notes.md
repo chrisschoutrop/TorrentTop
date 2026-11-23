@@ -108,6 +108,19 @@ Lijst van op te lossen issues:
 </prompt>
 
 🕒<prompt>
+Update the tests (files starting with test_) and experiments (files starting with exp_) such that there is only terminal output on failure. Work on ONLY one test or experiment at a time. After modifying one test or experiment, verify that everything is correct by running check.sh. After all test and experiments are correct and updated, make a git commit compactly describing this task,  DO NOT GIT PUSH.
+Tests to check for output and update:
+- [ ] ./phase1/test_BencodeParser.cpp
+- [ ] ./phase2/test_TrackerClient.cpp
+- [ ] ./phase2/test_HttpTransport.cpp
+Experiments to check for output and update:
+- [ ] ./phase1/exp_read_torrent.cpp
+- [ ] ./phase1/exp_sha_hash.cpp
+- [ ] ./phase2/exp_announce.cpp
+- [ ] ./phase2/exp_boost_asio.cpp
+</prompt>
+
+🕒<prompt>
 Can you critically review everything in phase2 for me? Assume that inputs can be malicious, since this is a BitTorrent program and there is a high risk of malicious input files or peers. Write the potential security problems in markdown to security_problems_phase2.md.
 </prompt>
 

@@ -9,6 +9,7 @@
 #include <string>
 #include <system_error>
 #include <thread>
+#include <utility>
 
 // Minimal single-shot local HTTP server so the end-to-end tests need no external network (shared with test_TrackerClient).
 #include "local_test_server.hpp"
@@ -33,6 +34,8 @@ class test_HttpTransport
 			test_async_content_length_overflow_rejected();
 			test_async_get_local_server();
 			test_async_get_timeout();
+			test_slow_drip_sync_aborted();
+			test_slow_drip_async_aborted();
 			test_async_get_errors();
 			test_parse_random_inputs();
 		}
@@ -728,6 +731,202 @@ class test_HttpTransport
 			{
 				timedOut = (e.code() == boost::asio::error::make_error_code(boost::asio::error::timed_out));
 				std::cout << "#3ebb53: expected timeout: " << e.what() << std::endl;
+			}
+
+			assert(timedOut);
+		}
+
+		static void test_slow_drip_sync_aborted()
+		{
+			/*
+			M2 regression (sync path): a slow-drip server that sends one byte every 30 ms keeps every individual read
+			well under read_timeout, so the per-read timeout never fires; without an overall wall-clock budget the read
+			loop would be pinned until the drip ends. The client must now abort with timed_out once Config::request_timeout
+			elapses. Content-Length is deliberately below max_response_size so M1's up-front reject does not interfere.
+			*/
+			boost::asio::io_context accept_io;
+			boost::system::error_code ec;
+			boost::asio::ip::tcp::acceptor acceptor(accept_io);
+
+			acceptor.open(boost::asio::ip::tcp::v4(), ec);
+			assert(!ec);
+
+			acceptor.set_option(boost::asio::socket_base::reuse_address(true));
+			acceptor.listen(1, ec);
+			assert(!ec);
+
+			const std::string port = std::to_string(acceptor.local_endpoint(ec).port());
+			assert(!ec);
+
+			std::thread holder([&acceptor, &accept_io]()
+			{
+				boost::asio::ip::tcp::socket peer(accept_io);
+				boost::system::error_code accept_ec;
+				acceptor.accept(peer, accept_ec);
+
+				if (accept_ec)
+				{
+					return;
+				}
+
+				std::string request; // drain the request until its header is complete
+				char rbuf[4096];
+
+				while (request.find("\r\n\r\n") == std::string::npos)
+				{
+					const auto rn = peer.read_some(boost::asio::buffer(rbuf), accept_ec);
+
+					if (accept_ec)
+					{
+						return;
+					}
+
+					request.append(rbuf, rn);
+				}
+
+				boost::system::error_code send_ec;
+				const std::string head = "HTTP/1.1 200 OK\r\nContent-Length: 999999\r\n\r\n";
+
+				if (boost::asio::write(peer, boost::asio::buffer(head), send_ec) == 0)
+				{
+					return;
+				}
+
+				for (int i = 0; i < 50; ++i) // drip one byte every 30 ms: each read stays far under read_timeout
+				{
+					std::this_thread::sleep_for(std::chrono::milliseconds(30));
+					const char b = 'x';
+
+					if (boost::asio::write(peer, boost::asio::buffer(&b, 1), send_ec) == 0)
+					{
+						break; // client gave up: stop dripping
+					}
+				}
+			});
+
+			HttpTransport::Config config;
+			config.request_timeout = std::chrono::milliseconds(200); // overall budget, far below the drip duration
+			config.read_timeout = std::chrono::seconds(5);          // per-read timeout must NOT be what fires
+			HttpTransport http(config);
+
+			const auto start = std::chrono::steady_clock::now();
+			bool timedOut = false;
+
+			try
+			{
+				http.get("127.0.0.1", port, "/");
+			}
+			catch (const std::system_error& e)
+			{
+				timedOut = (e.code() == boost::asio::error::make_error_code(boost::asio::error::timed_out));
+				std::cout << "expected slow-drip timeout: " << e.what() << std::endl;
+			}
+
+			const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
+			holder.join();
+
+			assert(timedOut);
+			assert(elapsed_ms < 4000); // aborted by the overall budget, not after the drip ends (~1.5 s)
+		}
+
+		static void test_slow_drip_async_aborted()
+		{
+			/*
+			M2 regression (async path): same slow-drip attack as above, but through async_get. The per-read timeout is
+			re-armed on every drip byte and never fires; the overall Config::request_timeout budget must abort the session
+			with std::system_error(timed_out) delivered via the exception_ptr.
+			*/
+			boost::asio::io_context accept_io;
+			boost::system::error_code ec;
+			boost::asio::ip::tcp::acceptor acceptor(accept_io);
+
+			acceptor.open(boost::asio::ip::tcp::v4(), ec);
+			assert(!ec);
+
+			acceptor.set_option(boost::asio::socket_base::reuse_address(true));
+			acceptor.listen(1, ec);
+			assert(!ec);
+
+			const std::string port = std::to_string(acceptor.local_endpoint(ec).port());
+			assert(!ec);
+
+			std::thread holder([&acceptor, &accept_io]()
+			{
+				boost::asio::ip::tcp::socket peer(accept_io);
+				boost::system::error_code accept_ec;
+				acceptor.accept(peer, accept_ec);
+
+				if (accept_ec)
+				{
+					return;
+				}
+
+				std::string request; // drain the request until its header is complete
+				char rbuf[4096];
+
+				while (request.find("\r\n\r\n") == std::string::npos)
+				{
+					const auto rn = peer.read_some(boost::asio::buffer(rbuf), accept_ec);
+
+					if (accept_ec)
+					{
+						return;
+					}
+
+					request.append(rbuf, rn);
+				}
+
+				boost::system::error_code send_ec;
+				const std::string head = "HTTP/1.1 200 OK\r\nContent-Length: 999999\r\n\r\n";
+
+				if (boost::asio::write(peer, boost::asio::buffer(head), send_ec) == 0)
+				{
+					return;
+				}
+
+				for (int i = 0; i < 50; ++i) // drip one byte every 30 ms: each read stays far under read_timeout
+				{
+					std::this_thread::sleep_for(std::chrono::milliseconds(30));
+					const char b = 'x';
+
+					if (boost::asio::write(peer, boost::asio::buffer(&b, 1), send_ec) == 0)
+					{
+						break; // client gave up: stop dripping
+					}
+				}
+			});
+
+			HttpTransport::Config config;
+			config.request_timeout = std::chrono::milliseconds(200); // overall budget, far below the drip duration
+			config.read_timeout = std::chrono::seconds(5);          // per-read timeout must NOT be what fires
+			HttpTransport http(config);
+
+			boost::asio::io_context io;
+			std::exception_ptr ex;
+			int calls = 0;
+
+			http.async_get(io, "127.0.0.1", port, "/", [&ex, &calls](std::exception_ptr e, HttpResponse)
+			{
+				ex = std::move(e);
+				calls++;
+			});
+
+			io.run(); // must return once the overall budget delivers the result
+			holder.join();
+
+			assert(calls == 1);
+			assert(ex != nullptr);
+
+			bool timedOut = false;
+
+			try
+			{
+				std::rethrow_exception(ex);
+			}
+			catch (const std::system_error& e)
+			{
+				timedOut = (e.code() == boost::asio::error::make_error_code(boost::asio::error::timed_out));
+				std::cout << "expected slow-drip timeout: " << e.what() << std::endl;
 			}
 
 			assert(timedOut);
