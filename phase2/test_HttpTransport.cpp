@@ -25,6 +25,7 @@ class test_HttpTransport
 			test_header_lookup();
 			test_url_scheme_validation();
 			test_request_component_validation();
+			test_port_range_validation();
 			test_get_local_server();
 			test_get_no_content_length_split_writes();
 			test_url_ipv6_and_port();
@@ -348,6 +349,54 @@ class test_HttpTransport
 				{
 					HttpResponse resp = http.get(bad_urls[i]);
 					std::cout << "#59a3b7: URL unexpectedly accepted" << std::endl;
+				}
+				catch (const std::invalid_argument&)
+				{
+					urlRejected = true;
+				}
+
+				assert(urlRejected);
+			}
+		}
+
+		static void test_port_range_validation()
+		{
+			/*
+			M4: ports must be numeric AND in range 1-65535. Out-of-range values are not valid TCP destination
+			ports and must be rejected before any network I/O (the digits-only check alone would accept "0" or
+			"99999"). The URL overload parses the port from the URL and must reject the same inputs.
+			*/
+			HttpTransport http;
+
+			std::vector<std::string> bad_ports{"0", "65536", "99999"};
+
+			for (uint64_t i = 0; i < bad_ports.size(); ++i)
+			{
+				bool portRejected = false;
+
+				try // out-of-range ports must be rejected before any network I/O
+				{
+					HttpResponse resp = http.get("127.0.0.1", bad_ports[i], "/");
+					std::cout << "#a4c9e7: out-of-range port unexpectedly accepted" << std::endl;
+				}
+				catch (const std::invalid_argument&)
+				{
+					portRejected = true;
+				}
+
+				assert(portRejected);
+			}
+
+			std::vector<std::string> bad_urls{"http://127.0.0.1:65536/announce", "http://127.0.0.1:0/announce"};
+
+			for (uint64_t i = 0; i < bad_urls.size(); ++i)
+			{
+				bool urlRejected = false;
+
+				try
+				{
+					HttpResponse resp = http.get(bad_urls[i]);
+					std::cout << "#b3d8f1: URL with out-of-range port unexpectedly accepted" << std::endl;
 				}
 				catch (const std::invalid_argument&)
 				{

@@ -151,8 +151,9 @@ bool is_safe_host(const std::string& host)
 	});
 }
 
-// H1: port must be 1-5 decimal digits (numeric ports only; IANA service names are rejected so an attacker
-// cannot steer the destination port via e.g. ":sqlservr").
+// H1/M4: port must be numeric and in range 1-65535. Digits-only rejects IANA service names so an attacker cannot
+// steer the destination port via e.g. ":sqlservr"; the range check additionally rejects "0", "99999" etc., which
+// are not valid TCP destination ports (M4).
 bool is_safe_port(const std::string& port)
 {
 	if (port.empty() || port.size() > 5)
@@ -160,10 +161,19 @@ bool is_safe_port(const std::string& port)
 		return false;
 	}
 
-	return std::none_of(port.begin(), port.end(), [](char ch)
+	int value = 0; // at most 99999: cannot overflow int
+
+	for (char ch : port)
 	{
-		return ch < '0' || ch > '9'; // digits only
-	});
+		if (ch < '0' || ch > '9') // digits only
+		{
+			return false;
+		}
+
+		value = value * 10 + (ch - '0');
+	}
+
+	return value >= 1 && value <= 65535;
 }
 }
 
@@ -301,6 +311,12 @@ class HttpTransport
 		HttpTransport() : m_config() {}
 		explicit HttpTransport(const Config& config) : m_config(config) {}
 
+		// M4/SSRF trade-off (documented decision): host/port come from the .torrent (attacker-controlled). This class
+		// deliberately does NOT filter resolved addresses to public ranges: BEP-3 tracker URLs are part of the torrent
+		// format, and a user who adds a torrent has implicitly accepted its tracker endpoints. What IS enforced here:
+		//   - empty hosts are rejected (an empty nodename would make getaddrinfo resolve to localhost);
+		//   - ports must be numeric 1-65535 (IANA service names like ":sqlservr" cannot steer the destination port).
+		// Callers that need a private/loopback/metadata-range deny-list should filter the resolved endpoints themselves.
 		// GET path_and_query (e.g. "/announce?info_hash=..") against host:port and read the full response.
 		HttpResponse get(const std::string& host, const std::string& port, const std::string& path_and_query) const;
 
