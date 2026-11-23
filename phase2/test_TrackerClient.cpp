@@ -44,7 +44,8 @@ class test_TrackerClient
 			test_async_announce_throwing_callback_failure_paths();
 			test_sanitize_for_logging_escapes_control_bytes();
 			test_parse_response_failure_reason_escaped();
-			test_announce_non200_malicious_url_sanitized();
+			test_announce_malicious_url_rejected();
+			test_announce_non200_url_sanitized();
 			test_announce_all_multi_tracker_success_and_dedup();
 			test_announce_all_partial_failure_isolation();
 			test_announce_all_empty_url_list();
@@ -1074,21 +1075,50 @@ class test_TrackerClient
 			assert(*resp.failure_reason == "FAKE\\r\\n\\x1B[2J ok"); // escaped, not raw control bytes
 		}
 
-		static void test_announce_non200_malicious_url_sanitized()
+		static void test_announce_malicious_url_rejected()
 		{
 			/*
-			M3: announce_url comes from the .torrent and is embedded in the non-200 exception message. A URL carrying
-			raw CRLF + an ANSI escape must reach the server (the request still terminates correctly) but appear only in
-			escaped form in the thrown message: no raw control byte may survive into e.what().
+			H1: announce_url comes from the .torrent. A path carrying raw CRLF + an ANSI escape is rejected by
+			HttpTransport before any network I/O (std::invalid_argument): no request with injected headers can be
+			sent, and the exception message embeds no attacker-controlled text at all.
+			*/
+			const std::string malicious_path = "/ann\r\nFAKE\x1b[2J"; // log-forging CRLF + terminal escape
+			AnnounceRequest req;
+			req.announce_url = "http://127.0.0.1:80" + malicious_path;
+
+			bool exceptionThrown = false;
+			std::string message;
+
+			try
+			{
+				TrackerClient().announce(req);
+			}
+			catch (const std::invalid_argument& e)
+			{
+				exceptionThrown = true;
+				message = e.what();
+				std::cout << "#f2a9c4: expected failure: " << message << std::endl;
+			}
+
+			assert(exceptionThrown);
+			assert(message.find('\r') == std::string::npos); // no raw control byte survives into the message
+			assert(message.find('\n') == std::string::npos);
+			assert(message.find("\x1b") == std::string::npos);
+		}
+
+		static void test_announce_non200_url_sanitized()
+		{
+			/*
+			M3: announce_url comes from the .torrent and is embedded in the non-200 exception message. The URL must
+			appear only in escaped form in the thrown message: no raw control byte may survive into e.what().
 			*/
 			local_test_server server("HTTP/1.1 503 Service Unavailable\r\n"
 			                         "Content-Length: 2\r\n"
 			                         "\r\n"
 			                         "de");
 
-			const std::string malicious_path = "/ann\r\nFAKE\x1b[2J"; // log-forging CRLF + terminal escape
 			AnnounceRequest req;
-			req.announce_url = "http://127.0.0.1:" + server.port() + malicious_path;
+			req.announce_url = "http://127.0.0.1:" + server.port() + "/announce";
 
 			bool exceptionThrown = false;
 			std::string message;
@@ -1101,13 +1131,12 @@ class test_TrackerClient
 			{
 				exceptionThrown = true;
 				message = e.what();
-				std::cout << "#e4c5f6: expected failure: " << message << std::endl;
+				std::cout << "#9b7e31: expected failure: " << message << std::endl;
 			}
 
 			assert(exceptionThrown);
-			assert(message.find("\\r\\n") != std::string::npos); // CRLF escaped, not raw
-			assert(message.find("\\x1B") != std::string::npos);  // ESC escaped, not raw
-			assert(message.find('\r') == std::string::npos);     // no raw control byte survives into the message
+			assert(message.find("503") != std::string::npos); // the non-200 status is reported
+			assert(message.find('\r') == std::string::npos);  // no raw control byte survives into the message
 		}
 
 		static std::string make_announce_body(int64_t interval, const std::vector<std::array<uint8_t, 6>>& peers)

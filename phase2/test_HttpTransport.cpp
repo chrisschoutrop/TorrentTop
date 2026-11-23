@@ -23,6 +23,7 @@ class test_HttpTransport
 			test_content_length_of_head();
 			test_header_lookup();
 			test_url_scheme_validation();
+			test_request_component_validation();
 			test_get_local_server();
 			test_get_no_content_length_split_writes();
 			test_url_ipv6_and_port();
@@ -235,6 +236,119 @@ class test_HttpTransport
 				}
 
 				assert(exceptionThrown);
+			}
+		}
+
+		static void test_request_component_validation()
+		{
+			/*
+			H1: host/port/path come from the .torrent (attacker-controlled) and are spliced into the wire
+			request. Any control character, DEL, space or non-ASCII byte in the path, any unsafe host, or a
+			non-numeric port must be rejected with std::invalid_argument before any network I/O:
+			    "/announce\r\nX-Injected: evil"   CRLF header injection
+			    "/a\r\n\r\nGET /b HTTP/1.1"       request smuggling (header terminator)
+			    "" host                           empty host would resolve to localhost
+			    "bad\thost"                       control character in host
+			    port "sqlservr"                   IANA service name must not steer the destination port
+			    port "999999"                     more than 5 digits is not a valid port
+			*/
+			HttpTransport http;
+
+			std::vector<std::string> bad_paths
+			{
+				"/announce\r\nX-Injected: evil",
+				"/a\r\n\r\nGET /b HTTP/1.1",
+				"/path with space",
+				"/\x01" "control", // split literals: a hex escape would otherwise swallow the following 'c'
+				"/del" "\x7f" "byte", // split literals: a hex escape would otherwise swallow the following 'b'
+			};
+
+			for (uint64_t i = 0; i < bad_paths.size(); ++i)
+			{
+				bool exceptionThrown = false;
+
+				try
+				{
+					HttpResponse resp = http.get("127.0.0.1", "80", bad_paths[i]);
+					std::cout << "#a3f7c2: path unexpectedly accepted" << std::endl;
+				}
+				catch (const std::invalid_argument&)
+				{
+					exceptionThrown = true;
+				}
+
+				assert(exceptionThrown);
+			}
+
+			bool exceptionThrown = false;
+
+			try // empty host must be rejected, not silently resolved to localhost
+			{
+				HttpResponse resp = http.get("", "80", "/");
+				std::cout << "#e1b94d: empty host unexpectedly accepted" << std::endl;
+			}
+			catch (const std::invalid_argument&)
+			{
+				exceptionThrown = true;
+			}
+
+			assert(exceptionThrown);
+
+			exceptionThrown = false;
+
+			try // control character in the host must be rejected
+			{
+				HttpResponse resp = http.get("bad\thost", "80", "/");
+				std::cout << "#7d2c58: unsafe host unexpectedly accepted" << std::endl;
+			}
+			catch (const std::invalid_argument&)
+			{
+				exceptionThrown = true;
+			}
+
+			assert(exceptionThrown);
+
+			std::vector<std::string> bad_ports{"sqlservr", "999999", "", "80x"};
+
+			for (uint64_t i = 0; i < bad_ports.size(); ++i)
+			{
+				bool portRejected = false;
+
+				try // IANA service names and malformed ports must be rejected before any network I/O
+				{
+					HttpResponse resp = http.get("127.0.0.1", bad_ports[i], "/");
+					std::cout << "#c84e1f: port unexpectedly accepted" << std::endl;
+				}
+				catch (const std::invalid_argument&)
+				{
+					portRejected = true;
+				}
+
+				assert(portRejected);
+			}
+
+			// The URL overload must reject the same inputs (port parsed from the URL).
+			std::vector<std::string> bad_urls
+			{
+				"http://127.0.0.1:sqlservr/announce",
+				"http:///announce", // empty host
+			};
+
+			for (uint64_t i = 0; i < bad_urls.size(); ++i)
+			{
+				bool urlRejected = false;
+
+				try
+				{
+					HttpResponse resp = http.get(bad_urls[i]);
+					std::cout << "#59a3b7: URL unexpectedly accepted" << std::endl;
+				}
+				catch (const std::invalid_argument&)
+				{
+					urlRejected = true;
+				}
+
+				assert(urlRejected);
 			}
 		}
 

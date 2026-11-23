@@ -121,6 +121,49 @@ std::optional<std::size_t> content_length_of_head(const std::string& head)
 		}
 	}
 }
+
+// H1: request components come from the .torrent (attacker-controlled) and are spliced verbatim into the
+// wire request. Reject anything that could inject headers or split the request: control characters, DEL,
+// space and non-ASCII bytes are all forbidden in a path/query by RFC 3986 §2.2 (they must be percent-encoded).
+bool is_safe_request_component(const std::string& s)
+{
+	return std::none_of(s.begin(), s.end(), [](char ch)
+	{
+		const unsigned char c = static_cast<unsigned char>(ch);
+		return c < 0x21 || c > 0x7E; // no control chars, no DEL, no space, ASCII only
+	});
+}
+
+// H1: host must be a non-empty hostname or IPv6 literal with no whitespace/control bytes (RFC 3986 reg-name /
+// IPv6address). Rejecting empty hosts also prevents getaddrinfo from silently resolving to localhost.
+bool is_safe_host(const std::string& host)
+{
+	if (host.empty())
+	{
+		return false;
+	}
+
+	return std::none_of(host.begin(), host.end(), [](char ch)
+	{
+		const unsigned char c = static_cast<unsigned char>(ch);
+		return c < 0x21 || c > 0x7E; // no control chars, no DEL, no space, ASCII only
+	});
+}
+
+// H1: port must be 1-5 decimal digits (numeric ports only; IANA service names are rejected so an attacker
+// cannot steer the destination port via e.g. ":sqlservr").
+bool is_safe_port(const std::string& port)
+{
+	if (port.empty() || port.size() > 5)
+	{
+		return false;
+	}
+
+	return std::none_of(port.begin(), port.end(), [](char ch)
+	{
+		return ch < '0' || ch > '9'; // digits only
+	});
+}
 }
 
 // Parsed HTTP response: status line, headers (keys lowercased) and the raw body bytes.
@@ -327,29 +370,10 @@ class HttpTransport
 
 inline HttpResponse HttpTransport::get(const std::string& host, const std::string& port, const std::string& path_and_query) const
 {
+	// H1: make_request() validates host/port/path (attacker-controlled via the .torrent) and throws on any
+	// byte that could inject headers or split the request. The path is re-derived for error messages below.
+	const std::string request = make_request(host, port, path_and_query, m_config.user_agent);
 	const std::string path = (path_and_query.empty() || path_and_query.front() != '/') ? "/" + path_and_query : path_and_query;
-
-	// Host header per RFC 7230: bracket IPv6 literals and include the port unless it is the default.
-	std::string host_header = host;
-
-	if (host.find(':') != std::string::npos) // IPv6 literal such as "::1" or "2001:db8::1"
-	{
-		host_header = "[" + host + "]";
-	}
-
-	if (port != "80")
-	{
-		host_header += ":" + port;
-	}
-
-	// --- build the request ------------------------------------------------------
-	const std::string request =
-	    std::string("GET ") + path + " HTTP/1.1\r\n" +
-	    "Host: " + host_header + "\r\n" +
-	    "User-Agent: " + m_config.user_agent + "\r\n" +
-	    "Accept: */*\r\n" +
-	    "Connection: close\r\n" +
-	    "\r\n";
 
 	// --- DNS resolve -------------------------------------------------------------
 	boost::asio::io_context io; // executor holder only; all operations below are synchronous
@@ -523,7 +547,25 @@ inline HttpTransport::UrlParts HttpTransport::parse_http_url(const std::string& 
 
 inline std::string HttpTransport::make_request(const std::string& host, const std::string& port, const std::string& path_and_query, const std::string& user_agent)
 {
+	// H1: host/port/path come from the .torrent (attacker-controlled). Reject anything that could inject
+	// headers or split the request before it is spliced into the wire format. The offending value is kept out
+	// of the message on purpose: remote text must not be embedded in exceptions verbatim.
+	if (!is_safe_host(host))
+	{
+		throw std::invalid_argument("#4f8e2d: unsafe host in HTTP request");
+	}
+
+	if (!is_safe_port(port))
+	{
+		throw std::invalid_argument("#7c3a91: unsafe port in HTTP request (numeric 1-5 digits only)");
+	}
+
 	const std::string path = (path_and_query.empty() || path_and_query.front() != '/') ? "/" + path_and_query : path_and_query;
+
+	if (!is_safe_request_component(path))
+	{
+		throw std::invalid_argument("#b56d0e: unsafe characters in HTTP request path");
+	}
 
 	// Host header per RFC 7230: bracket IPv6 literals and include the port unless it is the default.
 	std::string host_header = host;
