@@ -25,21 +25,31 @@ class test_TrackerClient
 			test_parse_response_failure_reason();
 			test_parse_response_malformed_peers();
 			test_parse_response_dict_list_peers();
+			test_parse_response_dict_list_peers_ip_validation();
+			test_parse_response_dict_list_peers_ipv4_mapped_normalization();
 			test_parse_response_dict_list_peers_malformed();
 			test_parse_response_peers6_valid();
 			test_parse_response_combined_peers_and_peers6();
 			test_parse_response_peers6_malformed();
 			test_parse_response_peer_limits();
 			test_parse_response_invalid();
+			test_parse_response_interval_bounds();
 			test_announce_local_server();
 			test_announce_failure_reason();
 			test_announce_non_200();
 			test_async_announce_local_server();
 			test_async_announce_non_200();
 			test_async_announce_malformed_bencode();
+			test_async_announce_throwing_callback_success_path();
+			test_async_announce_throwing_callback_failure_paths();
+			test_sanitize_for_logging_escapes_control_bytes();
+			test_parse_response_failure_reason_escaped();
+			test_announce_non200_malicious_url_sanitized();
 			test_announce_all_multi_tracker_success_and_dedup();
 			test_announce_all_partial_failure_isolation();
 			test_announce_all_empty_url_list();
+			test_announce_all_deduplicates_duplicate_urls();
+			test_announce_all_caps_distinct_tracker_count();
 		}
 
 		static void test_percent_encode_unreserved_punctuation()
@@ -231,19 +241,80 @@ class test_TrackerClient
 		{
 			/*
 			    Non-compact "peers" as a list of dictionaries (BEP-3): d5:peersl <dict> <dict> ee
-			    Each dict requires "ip" (byte string) and "port" (integer); the optional "peer id" is ignored.
-			    Dict keys are sorted ("ip" < "peer id" < "port"):
+			    Each dict requires "ip" (byte string holding a real IP literal) and "port" (integer); the
+			    optional "peer id" is ignored. Dict keys are sorted ("ip" < "peer id" < "port"):
 			        entry 1: d2:ip11:192.168.1.17:peer id4:abcde4:porti6881ee   -> ip "192.168.1.1", port 6881, peer id ignored
-			        entry 2: d2:ip12:peer.example4:porti51413ee                  -> non-numeric ip stored as-is, port 51413
+			        entry 2: d2:ip15:203.0.113.774:porti51413ee                 -> public IPv4 literal stored as-is, port 51413
 			*/
-			const AnnounceResponse resp = TrackerClient::parse_response("d5:peersld2:ip11:192.168.1.17:peer id4:abcd4:porti6881eed2:ip12:peer.example4:porti51413eeee");
+			const AnnounceResponse resp = TrackerClient::parse_response("d5:peersld2:ip11:192.168.1.17:peer id4:abcd4:porti6881eed2:ip12:203.0.113.774:porti51413eeee");
 
 			assert(!resp.failure_reason.has_value());
 			assert(resp.peers.size() == 2);
 			assert(resp.peers[0].ip == "192.168.1.1");
 			assert(resp.peers[0].port == 6881); // host byte order, not big-endian
-			assert(resp.peers[1].ip == "peer.example");
+			assert(resp.peers[1].ip == "203.0.113.77");
 			assert(resp.peers[1].port == 51413);
+		}
+
+		static void test_parse_response_dict_list_peers_ip_validation()
+		{
+			/*
+			    H3 (SSRF hardening): list-form "ip" must be a real IP literal. Hostnames, empty strings and
+			    arbitrary byte blobs are rejected with std::invalid_argument so downstream code can never be
+			    steered into resolving attacker-chosen names or logging unbounded blobs:
+			        d2:ip12:peer.example4:porti51413ee  -> hostname, reject
+			        d2:ip0:e4:porti6881ee               -> empty string, reject
+			*/
+			bool exceptionThrown = false;
+
+			try
+			{
+				const AnnounceResponse resp = TrackerClient::parse_response("d5:peersld2:ip12:peer.example4:porti51413eeee");
+				std::cout << "#b8e0f4: hostname \"ip\" was not rejected" << std::endl;
+			}
+			catch (const std::invalid_argument& e)
+			{
+				exceptionThrown = true;
+				std::cout << "#c9d1e2: expected failure: " << e.what() << std::endl;
+			}
+
+			assert(exceptionThrown);
+
+			exceptionThrown = false;
+
+			try
+			{
+				const AnnounceResponse resp = TrackerClient::parse_response("d5:peersld2:ip0:e4:porti6881eeee");
+				std::cout << "#d3f5a7: empty \"ip\" was not rejected" << std::endl;
+			}
+			catch (const std::invalid_argument& e)
+			{
+				exceptionThrown = true;
+				std::cout << "#e4b6c8: expected failure: " << e.what() << std::endl;
+			}
+
+			assert(exceptionThrown);
+		}
+
+		static void test_parse_response_dict_list_peers_ipv4_mapped_normalization()
+		{
+			/*
+			    H3 (SSRF hardening): IPv4-mapped IPv6 literals ("::ffff:a.b.c.d") are normalized to plain
+			    dotted-quad so equivalent addresses deduplicate downstream. Private/loopback literals are kept
+			    intentionally (BEP-3 local swarms); filtering belongs in the connection layer.
+			*/
+			const AnnounceResponse resp = TrackerClient::parse_response("d5:peersld2:ip15:::ffff:10.0.0.14:porti6881eeee");
+
+			assert(!resp.failure_reason.has_value());
+			assert(resp.peers.size() == 1);
+			assert(resp.peers[0].ip == "10.0.0.1"); // normalized from "::ffff:a00::1" form to dotted-quad
+			assert(resp.peers[0].port == 6881);
+
+			// A plain IPv4 literal and its mapped form must normalize identically (dedup key equivalence).
+			const AnnounceResponse resp_plain = TrackerClient::parse_response("d5:peersld2:ip8:10.0.0.14:porti6881eeee");
+
+			assert(resp_plain.peers.size() == 1);
+			assert(resp_plain.peers[0].ip == "10.0.0.1");
 		}
 
 		static void test_parse_response_dict_list_peers_malformed()
@@ -592,6 +663,74 @@ class test_TrackerClient
 			assert(exceptionThrown);
 		}
 
+		static void test_parse_response_interval_bounds()
+		{
+			/*
+			    M1 sanity bounds on "interval" (seconds, BEP-3): a tracker can return negative values or
+			    INT64_MAX. Callers that use the value directly for scheduling would get an infinite stall,
+			    immediate re-announce hot loop, or overflow in downstream int conversions. parse_response()
+			    must reject interval < 0 and interval > kMaxIntervalSeconds (7 days), and accept the bounds:
+			        d8:intervali-1ee           negative -> reject
+			        d8:intervali604801ee       just above the 7-day cap -> reject
+			        d8:intervali9223372036854775807ee   INT64_MAX -> reject (bencode parser itself rejects it as overflow)
+			        d8:intervali0ee            lower bound -> accept, interval == 0
+			        d8:intervali604800ee       upper bound (exactly 7 days) -> accept
+			*/
+			bool exceptionThrown = false;
+
+			try
+			{
+				const AnnounceResponse resp = TrackerClient::parse_response("d8:intervali-1ee"); // trailing 'e' closes the dict
+				std::cout << "#b8e4f1: negative interval was not rejected" << std::endl;
+			}
+			catch (const std::invalid_argument& e)
+			{
+				exceptionThrown = true;
+				std::cout << "#5d9c2e: expected failure: " << e.what() << std::endl;
+			}
+
+			assert(exceptionThrown);
+
+			exceptionThrown = false;
+
+			try
+			{
+				const AnnounceResponse resp = TrackerClient::parse_response("d8:intervali604801ee"); // 7 days + 1 s; trailing 'e' closes the dict
+				std::cout << "#e1f0a7: interval above the 7-day cap was not rejected" << std::endl;
+			}
+			catch (const std::invalid_argument& e)
+			{
+				exceptionThrown = true;
+				std::cout << "#7b3d6c: expected failure: " << e.what() << std::endl;
+			}
+
+			assert(exceptionThrown);
+
+			// INT64_MAX fits in int64_t, so it is parsed by the bencode parser and then rejected here by the M1 bound;
+			// values beyond INT64_MAX would already be rejected by the bencode parser (from_chars overflow).
+			exceptionThrown = false;
+
+			try
+			{
+				const AnnounceResponse resp = TrackerClient::parse_response("d8:intervali9223372036854775807ee"); // trailing 'e' closes the dict
+				std::cout << "#2f8a4e: INT64_MAX interval was not rejected" << std::endl;
+			}
+			catch (const std::exception& e) // bencode parser throws runtime_error on overflow, invalid_argument otherwise
+			{
+				exceptionThrown = true;
+				std::cout << "#9c4b7f: expected failure: " << e.what() << std::endl;
+			}
+
+			assert(exceptionThrown);
+
+			// Bounds are inclusive: 0 and exactly kMaxIntervalSeconds (604800 s) must be accepted.
+			const AnnounceResponse resp_zero = TrackerClient::parse_response("d8:intervali0ee"); // trailing 'e' closes the dict
+			assert(resp_zero.interval == 0);
+
+			const AnnounceResponse resp_max = TrackerClient::parse_response("d8:intervali604800ee"); // trailing 'e' closes the dict
+			assert(resp_max.interval == 604800);
+		}
+
 		static void test_announce_local_server()
 		{
 			/*
@@ -821,6 +960,156 @@ class test_TrackerClient
 			assert(exceptionThrown);
 		}
 
+		static void test_async_announce_throwing_callback_success_path()
+		{
+			/*
+			M4: a user-supplied on_complete that throws must not escape the Asio completion handler into
+			std::terminate(). Here it throws std::runtime_error on the success path (200 OK + valid bencode);
+			the process must survive and io.run() must return normally. The callback is invoked exactly once.
+			*/
+			std::string body = "d8:intervali3600ee";
+
+			local_test_server server("HTTP/1.1 200 OK\r\n"
+			                         "Content-Type: text/plain\r\n"
+			                         "Content-Length: " + std::to_string(body.size()) + "\r\n"
+			                         "\r\n" + body);
+
+			AnnounceRequest req;
+			req.announce_url = "http://127.0.0.1:" + server.port() + "/announce";
+
+			boost::asio::io_context io;
+			int calls = 0;
+
+			TrackerClient().async_announce(io, req, [&calls](std::exception_ptr, AnnounceResponse)
+			{
+				calls++;
+				throw std::runtime_error("#f7b3d9: simulated user callback failure");
+			});
+
+			io.run(); // must return normally; a throwing callback used to call std::terminate() here
+
+			assert(calls == 1);
+		}
+
+		static void test_async_announce_throwing_callback_failure_paths()
+		{
+			/*
+			M4: the same guarantee on the failure paths. The user callback throws (a non-std::exception type,
+			to exercise the catch(...) branch) both when a transport error is delivered and when a non-200
+			status is delivered; io.run() must return normally in both cases and each callback fires once.
+			*/
+			local_test_server server("HTTP/1.1 503 Service Unavailable\r\n"
+			                         "Content-Length: 2\r\n"
+			                         "\r\n"
+			                         "de");
+
+			int calls = 0;
+
+			// Each path gets its own io_context: once run() completes, the context is stopped and a second
+			// run() would return immediately without dispatching newly posted operations.
+
+			// Path 1: transport error (connection refused on a closed port) delivered to a throwing callback.
+			{
+				boost::asio::io_context io;
+				AnnounceRequest req;
+				req.announce_url = "http://127.0.0.1:1/announce"; // nothing listens here -> transport error
+
+				TrackerClient().async_announce(io, req, [&calls](std::exception_ptr e, AnnounceResponse)
+				{
+					calls++;
+					assert(e != nullptr);
+					throw 42; // non-std::exception type: exercises the catch(...) branch of invoke_on_complete()
+				});
+
+				io.run();
+			}
+
+			// Path 2: non-200 status delivered to a throwing callback.
+			{
+				boost::asio::io_context io;
+				AnnounceRequest req;
+				req.announce_url = "http://127.0.0.1:" + server.port() + "/announce";
+
+				TrackerClient().async_announce(io, req, [&calls](std::exception_ptr e, AnnounceResponse)
+				{
+					calls++;
+					assert(e != nullptr);
+					throw std::runtime_error("#8d3c91: simulated user callback failure");
+				});
+
+				io.run();
+			}
+
+			assert(calls == 2); // one delivery per path, no terminate in between
+		}
+
+		static void test_sanitize_for_logging_escapes_control_bytes()
+		{
+			/*
+			M3: sanitize_for_logging() must escape every control byte so tracker/torrent-derived text can never forge
+			log lines or inject terminal escapes; printable bytes pass through unchanged.
+			    "\r\n\x1b[31mhello\x7f" -> "\\r\\n\\x1B[31mhello\\x7F"  (literal backslash sequences)
+			    "abc 123"              -> "abc 123"                    (unchanged)
+			*/
+			const std::string escaped = TrackerClient::sanitize_for_logging("\r\n\x1b[31mhello\x7f");
+			assert(escaped == "\\r\\n\\x1B[31mhello\\x7F");
+
+			const std::string plain = TrackerClient::sanitize_for_logging("abc 123");
+			assert(plain == "abc 123");
+		}
+
+		static void test_parse_response_failure_reason_escaped()
+		{
+			/*
+			M3: a tracker-controlled "failure reason" containing CRLF and an ANSI escape must be stored with the
+			control bytes escaped, so displaying it in logs or UIs cannot forge lines or reprogram the terminal.
+			    payload = "FAKE\r\n\x1b[2J ok" (13 bytes) -> stored as "FAKE\\r\\n\\x1B[2J ok"
+			*/
+			const std::string payload = "FAKE\r\n\x1b[2J ok";
+			const std::string body = "d14:failure reason" + std::to_string(payload.size()) + ":" + payload + "e";
+
+			const AnnounceResponse resp = TrackerClient::parse_response(body);
+
+			assert(resp.failure_reason.has_value());
+			assert(*resp.failure_reason == "FAKE\\r\\n\\x1B[2J ok"); // escaped, not raw control bytes
+		}
+
+		static void test_announce_non200_malicious_url_sanitized()
+		{
+			/*
+			M3: announce_url comes from the .torrent and is embedded in the non-200 exception message. A URL carrying
+			raw CRLF + an ANSI escape must reach the server (the request still terminates correctly) but appear only in
+			escaped form in the thrown message: no raw control byte may survive into e.what().
+			*/
+			local_test_server server("HTTP/1.1 503 Service Unavailable\r\n"
+			                         "Content-Length: 2\r\n"
+			                         "\r\n"
+			                         "de");
+
+			const std::string malicious_path = "/ann\r\nFAKE\x1b[2J"; // log-forging CRLF + terminal escape
+			AnnounceRequest req;
+			req.announce_url = "http://127.0.0.1:" + server.port() + malicious_path;
+
+			bool exceptionThrown = false;
+			std::string message;
+
+			try
+			{
+				TrackerClient().announce(req);
+			}
+			catch (const std::runtime_error& e)
+			{
+				exceptionThrown = true;
+				message = e.what();
+				std::cout << "#e4c5f6: expected failure: " << message << std::endl;
+			}
+
+			assert(exceptionThrown);
+			assert(message.find("\\r\\n") != std::string::npos); // CRLF escaped, not raw
+			assert(message.find("\\x1B") != std::string::npos);  // ESC escaped, not raw
+			assert(message.find('\r') == std::string::npos);     // no raw control byte survives into the message
+		}
+
 		static std::string make_announce_body(int64_t interval, const std::vector<std::array<uint8_t, 6>>& peers)
 		{
 			std::string body = "d8:intervali" + std::to_string(interval) + "e5:peers";
@@ -998,6 +1287,85 @@ class test_TrackerClient
 			assert(out.results.empty());
 			assert(out.peers.empty());
 			assert(out.min_interval == 0);
+		}
+
+		static void test_announce_all_deduplicates_duplicate_urls()
+		{
+			/*
+			H2: duplicate URLs in the (attacker-controlled) torrent tracker list must be announced only once.
+			The single local server is single-shot, so a second connection to it would time out and poison the
+			result; exactly one result entry for the URL proves deduplication.
+			*/
+			const std::array<uint8_t, 6> p1 = {0x01, 0x02, '\x03', '\x04', static_cast<uint8_t>(0x1A), static_cast<uint8_t>(0xE1)}; // 1.2.3.4:6881
+			const std::string body = make_announce_body(1800, {p1});
+
+			local_test_server server("HTTP/1.1 200 OK\r\n"
+			                         "Content-Type: text/plain\r\n"
+			                         "Content-Length: " + std::to_string(body.size()) + "\r\n"
+			                         "\r\n" + body);
+
+			const std::string url = "http://127.0.0.1:" + server.port() + "/announce";
+
+			AnnounceRequest req;
+			req.peer_id = {'T', 'T'};
+			req.port = 6881;
+
+			const MultiAnnounceResult out = TrackerClient().announce_all({url, url, url}, req); // same URL three times
+
+			assert(out.results.size() == 1); // duplicates collapsed to a single entry (first occurrence wins)
+			assert(out.results[0].announce_url == url);
+			assert(out.results[0].error == nullptr);
+			assert(out.results[0].response.has_value());
+			assert(out.peers.size() == 1);
+			assert(out.min_interval == 1800);
+		}
+
+		static void test_announce_all_caps_distinct_tracker_count()
+		{
+			/*
+			H2: a torrent may list far more distinct tracker URLs than the client is willing to contact.
+			announce_all() must process at most kMaxTrackersPerAnnounce of them (first-occurrence order) and
+			silently ignore the rest, so thread/socket exhaustion from a malicious .torrent is impossible.
+			The single local server serves exactly one connection; all other URLs are unresolvable names that
+			fail fast in DNS without opening sockets.
+			*/
+			const std::array<uint8_t, 6> p1 = {0x01, 0x02, '\x03', '\x04', static_cast<uint8_t>(0x1A), static_cast<uint8_t>(0xE1)}; // 1.2.3.4:6881
+			const std::string body = make_announce_body(1800, {p1});
+
+			local_test_server server("HTTP/1.1 200 OK\r\n"
+			                         "Content-Type: text/plain\r\n"
+			                         "Content-Length: " + std::to_string(body.size()) + "\r\n"
+			                         "\r\n" + body);
+
+			const std::string url_ok = "http://127.0.0.1:" + server.port() + "/announce";
+
+			std::vector<std::string> urls;
+			urls.push_back(url_ok); // first URL: the only one that can actually be served
+
+			for (std::size_t i = 0; i < kMaxTrackersPerAnnounce * 2; ++i) // well above the cap, all distinct
+			{
+				urls.push_back("http://nonexistent-tracker-" + std::to_string(i) + ".invalid/announce");
+			}
+
+			AnnounceRequest req;
+			req.peer_id = {'T', 'T'};
+			req.port = 6881;
+
+			const MultiAnnounceResult out = TrackerClient().announce_all(urls, req);
+
+			assert(out.results.size() == kMaxTrackersPerAnnounce); // capped: the rest of the list is ignored
+			assert(out.results[0].announce_url == url_ok);         // first-occurrence order preserved
+
+			// The healthy tracker still contributes its peers/interval; the unresolvable ones carry errors.
+			assert(out.results[0].error == nullptr);
+			assert(out.results[0].response.has_value());
+			assert(out.peers.size() == 1);
+			assert(out.min_interval == 1800);
+
+			for (std::size_t i = 1; i < out.results.size(); ++i)
+			{
+				assert(out.results[i].error != nullptr); // DNS failure, isolated per tracker
+			}
 		}
 };
 

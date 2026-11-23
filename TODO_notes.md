@@ -20,10 +20,32 @@ Can you critically review everything in phase1/BencodeParser.hpp for me? Assume 
 Can you fix the security problems mentioned in security_problems_TrackerClient.md? Make sure that check.sh all compile_run.sh still pass. 
 </prompt>
 
-🕒<prompt>
+✅<<prompt>
 Can you fix the following security issue layed out in security_problems_TrackerClient.md:
 
 H1. Memory amplification: no cap on bencode element count or peer list size
+</prompt>
+
+🕒<<prompt>
+Lees `security_problems_TrackerClient.md` en `TrackerClient.hpp` / `TrackerClient.cpp`.
+Los de onderstaande 5 security-issues **strikt één voor één** op. Doe NOOIT twee fixes tegelijk in één stap.
+
+Werk voor elk punt onderstaande vaste cyclus af voordat je aan het volgende punt begint:
+1. Lees de beschrijving van het specifieke issue in `security_problems_TrackerClient.md`.
+2. Pas alleen de relevante code in `TrackerClient` (en eventuele unit tests) aan.
+3. Draai de build / unit tests om te verifiëren dat alles compileert en slaagt.
+4. Vink het punt af in je overzicht en ga pas daarna door naar het volgende punt.
+
+Lijst van op te lossen issues:
+- [ ] 1. "Unbounded tracker fan-out from attacker-controlled URL list"
+- [ ] 2. "H3. SSRF / local-network exposure via attacker-chosen peers and tracker hosts"
+- [ ] 3. "No sanity bounds on `interval`"
+- [ ] 4. "`async_announce` user callback throwing → `std::terminate`"
+- [ ] 5. "Attacker-controlled strings embedded in exceptions and logs (log/UI injection)"
+
+Na elke stap, draai check.sh en los de problemen op die dit script geeft.
+
+Begin nu uitsluitend met punt 1.
 </prompt>
 
 🕒<prompt>

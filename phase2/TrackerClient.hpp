@@ -28,6 +28,7 @@ Usage:
 #include "HttpTransport.hpp"
 #include "../phase1/BencodeParser.hpp"
 
+#include <boost/asio/ip/address.hpp>
 #include <boost/asio/ip/address_v6.hpp>
 
 #include <algorithm>
@@ -35,6 +36,7 @@ Usage:
 #include <cstdint>
 #include <exception>
 #include <functional>
+#include <iostream>
 #include <optional>
 #include <set>
 #include <stdexcept>
@@ -48,7 +50,22 @@ Usage:
 // compact peer string (each 6-byte group becomes a ~50-100 B Peer object) to ~6.5 MB worst case.
 static constexpr std::size_t kMaxPeersPerResponse = 65536;
 
-// A single peer from a tracker response: IP address as a string (dotted-quad IPv4, IPv6 literal, or hostname) + port in host byte order.
+// Hard cap on the number of distinct tracker URLs processed by announce_all() (H2). The URL list comes from
+// the .torrent file and is attacker-controlled; without this cap a malicious torrent could spawn thousands
+// of concurrent connections/threads. Real torrents use at most a handful of trackers.
+static constexpr std::size_t kMaxTrackersPerAnnounce = 25;
+
+// Absolute cap on announce_all() worker threads (H2): bounds thread/socket exhaustion even when the caller
+// passes an attacker-influenced num_threads value.
+static constexpr std::size_t kMaxAnnounceThreads = 8;
+
+// M1 sanity bound on "interval" (seconds, BEP-3): negative values would cause immediate re-announce hot loops
+// or timer underflow in callers, and huge values (e.g. INT64_MAX) an infinite stall or overflow in downstream
+// int conversions. Reject < 0 and cap at ~7 days so the value can be used directly for scheduling.
+static constexpr int64_t kMaxIntervalSeconds = 7 * 24 * 60 * 60; // 604800 s (7 days)
+
+// A single peer from a tracker response: IP address as a canonical string (dotted-quad IPv4 or compressed IPv6
+// literal; list-form values are validated and normalized at parse time, see normalize_peer_ip()) + port in host byte order.
 struct Peer
 {
 	std::string ip; // e.g. "192.168.1.1"
@@ -79,7 +96,7 @@ struct AnnounceResponse
 {
 	int64_t interval = 0;
 	std::vector<Peer> peers;
-	std::optional<std::string> failure_reason; // set when the tracker reports a "failure reason"
+	std::optional<std::string> failure_reason; // set when the tracker reports a "failure reason" (M3: control bytes escaped for safe log/UI display)
 };
 
 // Per-tracker outcome of announce_all(): one entry per input URL, in input order.
@@ -132,6 +149,54 @@ Bytes to_bytes(const std::string& s)
 
 	return out;
 }
+
+// H3 (SSRF hardening): validate a list-form peer "ip" as a real IP literal and normalize its textual form.
+// Rejects empty strings, hostnames and arbitrary byte blobs: if downstream code resolves or logs them, an
+// attacker would otherwise control which names get resolved (DNS steering) and what reaches logs/UIs.
+// IPv4-mapped IPv6 forms ("::ffff:a.b.c.d") are normalized to plain dotted-quad so equivalent addresses
+// deduplicate. Private/loopback literals are intentionally KEPT: BEP-3 trackers may legitimately return LAN
+// peers (local swarms); the SSRF trade-off is an explicit, documented decision and filtering belongs in the
+// connection layer, which knows the local interfaces.
+std::optional<std::string> normalize_peer_ip(const std::string& ip)
+{
+	if (ip.empty())
+	{
+		return std::nullopt;
+	}
+
+	boost::system::error_code ec;
+	const auto addr = boost::asio::ip::make_address(ip, ec); // accepts IPv4 and IPv6 literals only, never hostnames
+
+	if (ec)
+	{
+		return std::nullopt; // hostname / arbitrary blob -> reject
+	}
+
+	// IPv4 literals are already canonical dotted-quad; to_v6() would throw bad_address_cast on them.
+	if (!addr.is_v6())
+	{
+		return addr.to_string();
+	}
+
+	const auto v6 = addr.to_v6(); // safe here: is_v6() checked above
+
+	if (v6.is_v4_mapped())
+	{
+		// This Boost version has no to_v4()/to_v4_mapped(): extract the embedded IPv4 bytes manually.
+		const auto v6_bytes = v6.to_bytes();
+
+		boost::asio::ip::address_v4::bytes_type v4_bytes{}; // std::array<unsigned char, 4> (no push_back)
+
+		for (std::size_t i = 0; i < 4; ++i)
+		{
+			v4_bytes[i] = v6_bytes[12 + i]; // last 4 bytes of an IPv4-mapped address
+		}
+
+		return boost::asio::ip::address_v4(v4_bytes).to_string(); // "::ffff:a.b.c.d" -> "a.b.c.d"
+	}
+
+	return addr.to_string(); // canonical form: dotted-quad for IPv4, compressed for IPv6
+}
 }
 
 class TrackerClient
@@ -173,6 +238,9 @@ class TrackerClient
 		Build the full announce URL:
 		    <announce_url>?info_hash=..&peer_id=..&port=..&uploaded=..&downloaded=..&left=..&compact=1[&event=..]
 		If announce_url already contains a query string, parameters are appended with '&'.
+
+		SSRF note (H3): the tracker host is attacker-controlled by design (BEP-3 names it in the .torrent); no
+		internal-endpoint filtering is applied here. That is an explicit, documented trade-off of BEP-3.
 		*/
 		static std::string build_announce_url(const AnnounceRequest& req)
 		{
@@ -214,15 +282,61 @@ class TrackerClient
 		}
 
 		/*
+		M3: escape control characters in tracker/torrent-derived text before it is embedded in exceptions or stored
+		for log/UI display, so a malicious "failure reason" or announce_url cannot forge log lines or inject terminal
+		escapes. \r -> "\\r", \n -> "\\n", any other byte < 0x20 or == 0x7F -> "\xNN"; printable bytes are unchanged.
+		*/
+		static std::string sanitize_for_logging(const std::string& s)
+		{
+			std::string out;
+			out.reserve(s.size());
+
+			for (const char ch : s)
+			{
+				const unsigned char c = static_cast<unsigned char>(ch);
+
+				if (c == '\r')
+				{
+					out += "\\r";
+				}
+				else if (c == '\n')
+				{
+					out += "\\n";
+				}
+				else if (c < 0x20 || c == 0x7F)
+				{
+					static constexpr char kHex[] = "0123456789ABCDEF";
+					out += "\\x";
+					out += kHex[c >> 4];
+					out += kHex[c & 0xF];
+				}
+				else
+				{
+					out += ch;
+				}
+			}
+
+			return out;
+		}
+
+		/*
 		Parse a raw bencoded tracker response body into an AnnounceResponse:
 		    - the entire body must be consumed (no trailing bytes after the top-level value)
-		    - "failure reason" is checked first and surfaced in AnnounceResponse.failure_reason
-		    - "interval" (optional integer)
+		    - "failure reason" is checked first and surfaced in AnnounceResponse.failure_reason, with control bytes
+		      escaped via sanitize_for_logging() so it is safe to write to logs or UIs (M3)
+		    - "interval" (optional integer, must be within [0, kMaxIntervalSeconds]; M1 sanity bound)
 		    - "peers" (optional): compact byte string (length must be a multiple of 6, each group of 6 bytes is
 		      4-byte big-endian IPv4 + 2-byte big-endian port) or a list of dictionaries with required
-		      "ip" (byte string) and "port" (integer in [0, 65535]); "peer id" is ignored
+		      "ip" (byte string holding a real IP literal; empty values, hostnames and other non-IP blobs are
+		      rejected, IPv4-mapped forms are normalized to dotted-quad) and "port" (integer in [0, 65535]);
+		      "peer id" is ignored
 		    - "peers6" (optional, BEP-7): compact byte string, length must be a multiple of 18; each group
 		      of 18 bytes is a 16-byte IPv6 address + 2-byte big-endian port (address formatted canonically)
+
+		SSRF note (H3): peer addresses and tracker hosts are attacker-controlled by design. Private/loopback
+		peer literals are intentionally kept because BEP-3 trackers may legitimately return LAN peers; filtering
+		belongs in the connection layer, which knows the local interfaces. Tracker hosts named by the .torrent
+		are likewise not filtered (see build_announce_url). This is an explicit, documented trade-off.
 		*/
 		static AnnounceResponse parse_response(const std::string& body)
 		{
@@ -254,11 +368,14 @@ class TrackerClient
 				}
 
 				const auto& raw = fr->get_bytes();
-				resp.failure_reason = std::string(reinterpret_cast<const char*>(raw.data()), raw.size());
+
+				// M3: the tracker controls this string; escape control bytes so it cannot forge log lines or inject
+				// terminal escapes when displayed.
+				resp.failure_reason = sanitize_for_logging(std::string(reinterpret_cast<const char*>(raw.data()), raw.size()));
 				return resp;
 			}
 
-			// 2) "interval" (optional, must be an integer when present).
+			// 2) "interval" (optional, must be an integer in [0, kMaxIntervalSeconds] when present; M1).
 			if (const BencodeValue * iv = dict_get(dict, "interval"))
 			{
 				if (!iv->is_int())
@@ -266,7 +383,14 @@ class TrackerClient
 					throw std::invalid_argument("#4edb5b: malformed tracker response: \"interval\" is not an integer");
 				}
 
-				resp.interval = iv->get_int();
+				const int64_t interval = iv->get_int();
+
+				if (interval < 0 || interval > kMaxIntervalSeconds)
+				{
+					throw std::invalid_argument("#a3c7d9: malformed tracker response: \"interval\" " + std::to_string(interval) + " is out of range [0, " + std::to_string(kMaxIntervalSeconds) + "]");
+				}
+
+				resp.interval = interval;
 			}
 
 			// 3) "peers" (optional): either a compact byte string of 6-byte IPv4+port groups, or a list of
@@ -345,7 +469,17 @@ class TrackerClient
 							throw std::invalid_argument("#ff6184: malformed tracker response: \"peers\" list element has out-of-range port " + std::to_string(port));
 						}
 
-						resp.peers.push_back(Peer{std::string(reinterpret_cast<const char*>(raw_ip.data()), raw_ip.size()), static_cast<uint16_t>(port)});
+						const std::string ip_str = std::string(reinterpret_cast<const char*>(raw_ip.data()), raw_ip.size());
+
+						// H3: list-form "ip" must be a real IP literal (no hostnames/empty/arbitrary blobs) and is normalized.
+						const auto norm_ip = normalize_peer_ip(ip_str);
+
+						if (!norm_ip.has_value())
+						{
+							throw std::invalid_argument("#7c2e91: malformed tracker response: \"peers\" list element has a non-IP-literal \"ip\"");
+						}
+
+						resp.peers.push_back(Peer{*norm_ip, static_cast<uint16_t>(port)});
 					}
 				}
 				else
@@ -404,7 +538,8 @@ class TrackerClient
 
 			if (http_resp.status_code != 200)
 			{
-				throw std::runtime_error("#d56990: tracker returned HTTP " + std::to_string(http_resp.status_code) + " for " + url);
+				// M3: announce_url comes from the .torrent; escape control bytes before embedding it in the message.
+				throw std::runtime_error("#d56990: tracker returned HTTP " + std::to_string(http_resp.status_code) + " for " + sanitize_for_logging(url));
 			}
 
 			return parse_response(http_resp.body);
@@ -413,6 +548,9 @@ class TrackerClient
 		// Asynchronous announce on a caller-owned io_context: builds the URL, performs one async GET via HttpTransport,
 		// requires HTTP 200 and parses the body. on_complete is invoked at most once with a non-null exception_ptr on any
 		// failure (transport error, non-200 status, or malformed bencode) and the parsed AnnounceResponse on success.
+		// M4: if the user-supplied on_complete itself throws, that exception is caught by invoke_on_complete() and logged
+		// (#c4e8a2 for std::exception types, #4a7f2b for non-std::exception types) instead of escaping the Asio
+		// completion handler into std::terminate().
 		void async_announce(boost::asio::io_context& io, const AnnounceRequest& req, std::function<void(std::exception_ptr, AnnounceResponse)> on_complete) const
 		{
 			const std::string url = build_announce_url(req);
@@ -421,23 +559,36 @@ class TrackerClient
 			{
 				if (ex)
 				{
-					on_complete(std::move(ex), AnnounceResponse{});
+					invoke_on_complete(std::move(on_complete), std::move(ex), AnnounceResponse{});
 					return;
 				}
 
 				if (http_resp.status_code != 200)
 				{
-					on_complete(std::make_exception_ptr(std::runtime_error("tracker returned HTTP " + std::to_string(http_resp.status_code) + " for " + url)), AnnounceResponse{});
+					// M3: announce_url comes from the .torrent; escape control bytes before embedding it in the message.
+					invoke_on_complete(std::move(on_complete), std::make_exception_ptr(std::runtime_error("tracker returned HTTP " + std::to_string(http_resp.status_code) + " for " + sanitize_for_logging(url))), AnnounceResponse{});
 					return;
 				}
 
+				std::exception_ptr parse_ex;
+				AnnounceResponse resp;
+
 				try
 				{
-					on_complete(nullptr, parse_response(http_resp.body));
+					resp = parse_response(http_resp.body);
 				}
 				catch (...)
 				{
-					on_complete(std::current_exception(), AnnounceResponse{});
+					parse_ex = std::current_exception();
+				}
+
+				if (parse_ex)
+				{
+					invoke_on_complete(std::move(on_complete), std::move(parse_ex), AnnounceResponse{});
+				}
+				else
+				{
+					invoke_on_complete(std::move(on_complete), nullptr, std::move(resp));
 				}
 			});
 		}
@@ -446,12 +597,16 @@ class TrackerClient
 		Concurrent multi-tracker announce (phase 5): announces to every URL in announce_urls on a local
 		io_context with worker threads and collects the per-URL outcomes plus an aggregated peer list:
 		    - empty announce_urls -> empty MultiAnnounceResult (no I/O at all)
-		    - results[i] corresponds to announce_urls[i] (input order preserved); each callback writes into its
-		      own disjoint slot, so no synchronization is needed between workers
+		    - H2 hardening: announce_urls comes from an attacker-controlled .torrent file, so duplicate URLs are
+		      announced only once (first occurrence wins) and at most kMaxTrackersPerAnnounce distinct URLs are
+		      processed; any remaining URLs are ignored. results[i] corresponds to the i-th distinct URL in
+		      first-occurrence order
+		    - each callback writes into its own disjoint slot, so no synchronization is needed between workers
 		    - peers: deduplicated union of identical (ip, port) pairs over responses that succeeded without a
 		      "failure reason", preserving discovery order (results in input URL order, peers in response order)
 		    - min_interval: smallest positive interval among successful non-failure responses, else 0
-		num_threads is the number of io_context worker threads; clamped to announce_urls.size() and at least 1.
+		num_threads is the number of io_context worker threads; clamped to the processed URL count and to the
+		absolute constant kMaxAnnounceThreads, at least 1.
 		*/
 		MultiAnnounceResult announce_all(const std::vector<std::string>& announce_urls, const AnnounceRequest& base_req, std::size_t num_threads = 4) const
 		{
@@ -462,18 +617,36 @@ class TrackerClient
 				return out; // nothing to do: no I/O, no threads
 			}
 
-			boost::asio::io_context io; // local executor: all async work below runs on the worker threads spawned here
-			out.results.resize(announce_urls.size());
+			// H2: deduplicate (first occurrence wins) and cap at kMaxTrackersPerAnnounce distinct URLs so a
+			// malicious torrent cannot spawn thousands of concurrent connections/threads or result slots.
+			std::vector<std::string> urls;
+			urls.reserve(std::min(announce_urls.size(), kMaxTrackersPerAnnounce));
 
-			for (std::size_t i = 0; i < announce_urls.size(); ++i)
+			for (const std::string& url : announce_urls)
 			{
-				out.results[i].announce_url = announce_urls[i];
+				if (urls.size() >= kMaxTrackersPerAnnounce)
+				{
+					break; // cap reached: ignore the remaining URLs
+				}
+
+				if (std::find(urls.begin(), urls.end(), url) == urls.end())
+				{
+					urls.push_back(url); // first occurrence wins; duplicates are skipped
+				}
 			}
 
-			for (std::size_t i = 0; i < announce_urls.size(); ++i)
+			boost::asio::io_context io; // local executor: all async work below runs on the worker threads spawned here
+			out.results.resize(urls.size());
+
+			for (std::size_t i = 0; i < urls.size(); ++i)
+			{
+				out.results[i].announce_url = urls[i];
+			}
+
+			for (std::size_t i = 0; i < urls.size(); ++i)
 			{
 				AnnounceRequest req = base_req; // copy: each tracker gets its own URL
-				req.announce_url = announce_urls[i];
+				req.announce_url = urls[i];
 
 				async_announce(io, req, [&out, i](std::exception_ptr ex, AnnounceResponse resp)
 				{
@@ -488,7 +661,7 @@ class TrackerClient
 				});
 			}
 
-			const std::size_t workers = (num_threads == 0) ? 1 : std::min(num_threads, announce_urls.size());
+			const std::size_t workers = std::min({(num_threads == 0) ? 1 : num_threads, urls.size(), kMaxAnnounceThreads}); // H2: absolute thread cap as well
 			std::vector<std::thread> pool;
 			pool.reserve(workers);
 
@@ -532,6 +705,25 @@ class TrackerClient
 		}
 
 	private:
+		// M4: on_complete runs inside a Boost.Asio completion handler; an exception escaping that path calls
+		// std::terminate(). This wrapper guarantees a throwing user callback can never propagate out of
+		// async_announce(): any exception is caught, logged with #c4e8a2, and swallowed.
+		static void invoke_on_complete(const std::function<void(std::exception_ptr, AnnounceResponse)>& on_complete, std::exception_ptr ex, AnnounceResponse resp)
+		{
+			try
+			{
+				on_complete(std::move(ex), std::move(resp));
+			}
+			catch (const std::exception& e)
+			{
+				std::cerr << "#c4e8a2: async_announce user callback threw, exception swallowed: " << e.what() << std::endl;
+			}
+			catch (...)
+			{
+				std::cerr << "#4a7f2b: async_announce user callback threw a non-std::exception type, exception swallowed" << std::endl;
+			}
+		}
+
 		HttpTransport m_http;
 };
 
