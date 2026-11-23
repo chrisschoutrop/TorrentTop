@@ -339,6 +339,17 @@ class HttpTransport
 	private:
 		Config m_config;
 
+		// L1: incremental scan state for response_complete(): the "\r\n\r\n" search resumes where it left off and the
+		// Content-Length is parsed exactly once, so each byte of a large header block is scanned O(1) times instead of
+		// being re-scanned from zero on every read chunk (which made completion detection quadratic in head size).
+		struct ResponseScanState
+		{
+			std::size_t search_from = 0; // resume the "\r\n\r\n" search here (a match starting earlier was already ruled out)
+			bool head_found = false;
+			std::size_t head_end = 0;    // position of "\r\n\r\n", valid once head_found
+			std::optional<std::size_t> content_length{}; // parsed once the head is complete (nullopt = absent/malformed)
+		};
+
 		// Per-request state shared by all in-flight callbacks so none of them can dangle.
 		struct AsyncSession
 		{
@@ -352,6 +363,7 @@ class HttpTransport
 			std::string port; // for error messages only
 			std::string request;
 			std::string response;
+			ResponseScanState scan; // L1: incremental completion-scan state for this session's response buffer
 			char buf[8192] {};
 			std::vector<boost::asio::ip::tcp::endpoint> endpoints;
 			std::size_t endpoint_index = 0;
@@ -392,7 +404,7 @@ class HttpTransport
 
 		// Throws once the accumulated response exceeds max_response_size or declares an unsatisfiable Content-Length;
 		// returns true when a declared Content-Length has been fully received (a response without one completes at EOF).
-		static bool response_complete(const std::string& response, const std::size_t max_response_size);
+		static bool response_complete(const std::string& response, const std::size_t max_response_size, ResponseScanState& scan);
 
 #ifdef __unix__
 		// M3/M2: poll(2)-deadline-bounded recv/send for the non-blocking socket left behind by connect_with_timeout().
@@ -470,6 +482,7 @@ inline HttpResponse HttpTransport::get(const std::string& host, const std::strin
 
 	std::string response;
 	char buf[8192];
+	ResponseScanState scan; // L1: incremental completion-scan state shared by the read loop below
 
 #ifdef __unix__
 	// --- send the full request (bounded by poll(2) deadlines, M3/M2) -------------------
@@ -480,8 +493,8 @@ inline HttpResponse HttpTransport::get(const std::string& host, const std::strin
 		throw std::system_error(send_ec, "send failed for GET " + path);
 	}
 
-	// --- read until we have a complete response (each read bounded, M3/M2) --------------
-	while (!response_complete(response, m_config.max_response_size))
+	// --- read until we have a complete response (each read bounded, M3/M2; L1: incremental scan) --------------
+	while (!response_complete(response, m_config.max_response_size, scan))
 	{
 		boost::system::error_code read_ec;
 		const auto n = bounded_read(socket.native_handle(), buf, sizeof(buf), m_config.read_timeout, deadline, read_ec);
@@ -515,8 +528,8 @@ inline HttpResponse HttpTransport::get(const std::string& host, const std::strin
 		throw std::system_error(ec, "send failed for GET " + path);
 	}
 
-	// --- read until we have a complete response ---------------------------------------
-	while (!response_complete(response, m_config.max_response_size))
+	// --- read until we have a complete response (L1: incremental scan) -------------------
+	while (!response_complete(response, m_config.max_response_size, scan))
 	{
 		const auto n = socket.read_some(boost::asio::buffer(buf), ec);
 
@@ -656,29 +669,41 @@ inline boost::system::error_code HttpTransport::connect_with_timeout(boost::asio
 #endif
 }
 
-// Shared by the sync read loops (unix and non-unix): throws once the accumulated response exceeds max_response_size
-// or declares an unsatisfiable Content-Length; returns true when a declared Content-Length has been fully received.
-// A response without one is only complete at EOF, which the caller detects.
-inline bool HttpTransport::response_complete(const std::string& response, const std::size_t max_response_size)
+// Shared by the sync read loops (unix and non-unix) and the async read handler: throws once the accumulated response
+// exceeds max_response_size or declares an unsatisfiable Content-Length; returns true when a declared Content-Length
+// has been fully received. A response without one is only complete at EOF, which the caller detects.
+// L1: scan carries incremental state across calls so each byte of the buffer is scanned O(1) times overall: the
+// "\r\n\r\n" search resumes at scan.search_from (a 4-byte match starting before that offset was fully inside an
+// earlier buffer and would already have been found, so resuming can never miss one), and the Content-Length is parsed
+// exactly once when the head first becomes complete instead of re-copying/re-lowercasing the whole head on every chunk.
+inline bool HttpTransport::response_complete(const std::string& response, const std::size_t max_response_size, ResponseScanState& scan)
 {
 	if (response.size() > max_response_size)
 	{
 		throw std::runtime_error("#d4211d: response exceeds max_response_size (" + std::to_string(max_response_size) + " bytes)");
 	}
 
-	const auto head_end = response.find("\r\n\r\n");
-
-	if (head_end == std::string::npos)
+	if (!scan.head_found)
 	{
-		return false; // header not complete yet
+		const auto head_end = response.find("\r\n\r\n", scan.search_from);
+
+		if (head_end == std::string::npos)
+		{
+			// No terminator yet: only the last 3 bytes could be the start of a "\r\n\r\n" that completes in future data.
+			scan.search_from = (response.size() > 3) ? response.size() - 3 : 0;
+			return false; // header not complete yet
+		}
+
+		scan.head_found = true;
+		scan.head_end = head_end;
+		scan.content_length = content_length_of_head(response.substr(0, head_end)); // parsed exactly once (L1)
 	}
 
-	const auto content_length = content_length_of_head(response.substr(0, head_end));
-	const auto body_start = head_end + 4;
+	const auto body_start = scan.head_end + 4;
 
 	// M1: a declared Content-Length above the configured cap can never be satisfied within the read budget (and
 	// would overflow size_t arithmetic), so reject it up front instead of reading on.
-	if (content_length.has_value() && *content_length > max_response_size)
+	if (scan.content_length.has_value() && *scan.content_length > max_response_size)
 	{
 		throw std::runtime_error("#6fff34: Content-Length exceeds max_response_size");
 	}
@@ -687,7 +712,7 @@ inline bool HttpTransport::response_complete(const std::string& response, const 
 	// (guarded by response.size() >= body_start) can never overflow, unlike the old `body_start + *content_length`
 	// which wrapped for huge declared lengths and broke out early. Without one we rely on "Connection: close" and
 	// keep reading until EOF (bounded by max_response_size).
-	return content_length.has_value() && response.size() >= body_start && *content_length <= response.size() - body_start;
+	return scan.content_length.has_value() && response.size() >= body_start && *scan.content_length <= response.size() - body_start;
 }
 
 #ifdef __unix__
@@ -1071,36 +1096,22 @@ inline void HttpTransport::async_start_read(const std::shared_ptr<AsyncSession>&
 
 		session->response.append(session->buf, n);
 
-		if (session->response.size() > session->max_response_size)
+		bool complete = false;
+
+		try
 		{
-			async_deliver(session, std::make_exception_ptr(std::runtime_error("response exceeds max_response_size (" + std::to_string(session->max_response_size) + " bytes)")));
+			complete = response_complete(session->response, session->max_response_size, session->scan); // L1: incremental scan
+		}
+		catch (...)
+		{
+			async_deliver(session, std::current_exception()); // over-size (#d4211d) or unsatisfiable Content-Length (M1, #6fff34)
 			return;
 		}
 
-		const auto head_end = session->response.find("\r\n\r\n");
-
-		if (head_end != std::string::npos)
+		if (complete)
 		{
-			const auto content_length = content_length_of_head(session->response.substr(0, head_end));
-			const auto body_start = head_end + 4;
-
-			// M1: a declared Content-Length above the configured cap can never be satisfied within the read
-			// budget (and would overflow size_t arithmetic), so reject it up front instead of reading on.
-			if (content_length.has_value() && *content_length > session->max_response_size)
-			{
-				async_deliver(session, std::make_exception_ptr(std::runtime_error("Content-Length exceeds max_response_size")));
-				return;
-			}
-
-			// Done once the declared Content-Length is fully received. Checked arithmetic: subtracting
-			// body_start (guarded by response.size() >= body_start) can never overflow, unlike the old
-			// `body_start + *content_length` which wrapped for huge declared lengths and broke out early.
-			// Without one we rely on "Connection: close" and keep reading until EOF (bounded by max_response_size).
-			if (content_length.has_value() && session->response.size() >= body_start && *content_length <= session->response.size() - body_start)
-			{
-				async_finish(session);
-				return;
-			}
+			async_finish(session);
+			return;
 		}
 
 		// M2: a slow-drip server that keeps every individual read under read_timeout can still pin this loop

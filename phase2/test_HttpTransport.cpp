@@ -40,6 +40,7 @@ class test_HttpTransport
 			test_slow_drip_async_aborted();
 			test_async_get_errors();
 			test_async_throwing_callback_does_not_terminate();
+			test_large_head_response_is_bounded();
 			test_parse_random_inputs();
 		}
 
@@ -1185,6 +1186,33 @@ class test_HttpTransport
 
 			io_async.run(); // the throwing callback fires inside this dispatch; it must be swallowed, not terminate
 			assert(async_calls == 1);
+		}
+
+		static void test_large_head_response_is_bounded()
+		{
+			/*
+			L1 regression: a response with an enormous header block (no "\r\n\r\n" for megabytes) used to make the read
+			loop re-run find("\r\n\r\n") from zero AND re-copy/re-lowercase the entire head on every 8 KiB chunk, i.e.
+			O(n x head_size) CPU — a pure-CPU DoS that took tens of seconds for this payload. The incremental scan must
+			keep completion detection linear: each byte is scanned O(1) times and the Content-Length is parsed once.
+			The 'x' fill deliberately contains no CRLF bytes, so the terminator search hits its worst case on every chunk.
+			*/
+			const std::size_t head_fill = 16 * 1024 * 1024; // 16 MiB of header junk (no "\r\n\r\n" inside)
+			const std::string body(8 * 1024 * 1024, 'y');   // 8 MiB body, no Content-Length -> completes at EOF
+
+			local_test_server server("HTTP/1.1 200 OK\r\n" + std::string(head_fill, 'x') + "\r\n\r\n" + body);
+
+			HttpTransport::Config config;
+			config.max_response_size = 32 * 1024 * 1024; // must fit the ~24 MiB response
+			HttpTransport http(config);
+
+			const auto start = std::chrono::steady_clock::now();
+			HttpResponse resp = http.get("127.0.0.1", server.port(), "/large-head");
+			const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
+
+			assert(resp.status_code == 200);
+			assert(resp.body.size() == body.size()); // full body received, nothing lost or truncated
+			assert(elapsed_ms < 8000);              // linear scan: well under the old quadratic cost (tens of seconds)
 		}
 
 
