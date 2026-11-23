@@ -39,6 +39,7 @@ class test_HttpTransport
 			test_slow_drip_sync_aborted();
 			test_slow_drip_async_aborted();
 			test_async_get_errors();
+			test_async_throwing_callback_does_not_terminate();
 			test_parse_random_inputs();
 		}
 
@@ -1128,6 +1129,62 @@ class test_HttpTransport
 			}
 
 			assert(systemError);
+		}
+
+		static void test_async_throwing_callback_does_not_terminate()
+		{
+			/*
+			M5: on_complete runs inside Asio completion handlers. A user callback that throws must not escape the
+			dispatch path and hit std::terminate (which would abort the whole process). async_deliver swallows it;
+			this test exercises both delivery paths: synchronous (invalid URL, delivered before any I/O) and
+			asynchronous (connection refused, delivered from inside io_context::run()). If the fix regresses, this
+			test aborts instead of returning.
+			*/
+			HttpTransport http;
+
+			// (a) synchronous delivery path: invalid scheme -> on_complete fires before async_get returns
+			boost::asio::io_context io_sync;
+			int sync_calls = 0;
+
+			http.async_get(io_sync, "https://example.com/", [&sync_calls](std::exception_ptr, HttpResponse)
+			{
+				sync_calls++;
+				throw std::runtime_error("#b53094: user callback bug (synchronous path)");
+			});
+
+			io_sync.run(); // no-op: the callback already fired synchronously
+			assert(sync_calls == 1);
+
+			// (b) asynchronous delivery path: bind a port to get a free one, release it, then expect connect refused
+			std::string port;
+
+			{
+				boost::asio::io_context io;
+				boost::system::error_code ec;
+				boost::asio::ip::tcp::acceptor acceptor(io);
+
+				acceptor.open(boost::asio::ip::tcp::v4(), ec);
+				assert(!ec);
+
+				acceptor.set_option(boost::asio::socket_base::reuse_address(true));
+				acceptor.listen(1, ec);
+				assert(!ec);
+
+				port = std::to_string(acceptor.local_endpoint(ec).port());
+				assert(!ec);
+			} // acceptor destroyed here: the port is now free -> connect must be refused
+
+			boost::asio::io_context io_async;
+			int async_calls = 0;
+
+			http.async_get(io_async, "127.0.0.1", port, "/", [&async_calls](std::exception_ptr, HttpResponse)
+			{
+				async_calls++;
+				throw std::runtime_error("#10d1df: user callback bug (asynchronous path)");
+			});
+
+			io_async.run(); // the throwing callback fires inside this dispatch; it must be swallowed, not terminate
+			assert(async_calls == 1);
 		}
 
 

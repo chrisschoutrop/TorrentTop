@@ -30,6 +30,7 @@ Usage:
 #include <chrono>
 #include <cstring>
 #include <exception>
+#include <iostream> // M5: report a swallowed user-callback exception on stderr
 #include <functional>
 #include <map>
 #include <memory>
@@ -931,7 +932,18 @@ inline void HttpTransport::async_deliver(const std::shared_ptr<AsyncSession>& se
 	boost::system::error_code ignored;
 	session->socket.close(ignored); // best-effort, ignore errors
 
-	session->on_complete(std::move(ex), std::move(resp));
+	// M5: on_complete runs inside Asio completion handlers (resolve/connect/write/read/timer). If the user callback
+	// throws (bad_alloc, a bug in downstream handling of a malicious response), letting it escape would reach
+	// std::terminate and crash the whole process. Swallow it here; the session is kept alive by the handler's own
+	// shared_ptr copy until that handler returns.
+	try
+	{
+		session->on_complete(std::move(ex), std::move(resp));
+	}
+	catch (...)
+	{
+		std::cerr << "#c7e2f4: HttpTransport async callback threw; exception swallowed" << std::endl;
+	}
 }
 
 inline void HttpTransport::async_arm_timer(const std::shared_ptr<AsyncSession>& session, std::chrono::milliseconds timeout)
