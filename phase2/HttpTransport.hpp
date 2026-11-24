@@ -12,7 +12,8 @@ Responsibilities (no knowledge of BitTorrent at all):
       Config::read_timeout); SO_RCVTIMEO/SO_SNDTIMEO are deliberately not used because Asio's synchronous recv/send
       convert their EAGAIN into an infinite internal poll and would not bound a silent peer. The whole request is
       additionally bounded by Config::request_timeout as an overall wall-clock budget (M2), plus a max-response-size
-      guard. Non-unix platforms currently have no such bounds (L3).
+      guard. On non-unix platforms the same bounds are enforced portably with Asio timers and non-blocking IO (L3):
+      connect is driven by async_connect + a timer deadline, and read/write use bounded non-blocking probes.
 
 Header-only: all definitions are inline. Built on Boost.Asio (already used in exp_boost_asio.cpp).
 
@@ -411,268 +412,31 @@ class HttpTransport
 		// returns true when a declared Content-Length has been fully received (a response without one completes at EOF).
 		static bool response_complete(const std::string& response, const std::size_t max_response_size, ResponseScanState& scan);
 
-#ifdef __unix__
-		// M3/M2: poll(2)-deadline-bounded recv/send for the non-blocking socket left behind by connect_with_timeout().
-		static std::size_t bounded_read(int fd, char* buf, std::size_t len, std::chrono::milliseconds per_op_timeout, const std::chrono::steady_clock::time_point& deadline, boost::system::error_code& ec);
-		static bool bounded_write_all(int fd, const char* data, std::size_t len, std::chrono::milliseconds per_op_timeout, const std::chrono::steady_clock::time_point& deadline, boost::system::error_code& ec);
-#endif
 };
 
 inline HttpResponse HttpTransport::get(const std::string& host, const std::string& port, const std::string& path_and_query) const
 {
-	// H1: make_request() validates host/port/path (attacker-controlled via the .torrent) and throws on any
-	// byte that could inject headers or split the request. The path is re-derived for error messages below.
-	const std::string request = make_request(host, port, path_and_query, m_config.user_agent);
-	const std::string path = (path_and_query.empty() || path_and_query.front() != '/') ? "/" + path_and_query : path_and_query;
+	// L3: use the portable async_get implementation to ensure timeouts are enforced on all platforms.
+	boost::asio::io_context io;
+	std::exception_ptr ex;
+	std::optional<HttpResponse> resp;
 
-	// M2: overall wall-clock budget for the whole request. A slow-drip server that keeps every individual read
-	// under read_timeout can still pin the read loop indefinitely, so abort once this total time is exceeded.
-	const auto deadline = std::chrono::steady_clock::now() + m_config.request_timeout;
-
-	// --- DNS resolve -------------------------------------------------------------
-	boost::asio::io_context io; // executor holder only; all operations below are synchronous
-	boost::system::error_code ec;
-	boost::asio::ip::tcp::resolver resolver(io);
-	const auto endpoints = resolver.resolve(host, port, ec);
-
-	if (ec)
+	async_get(io, host, port, path_and_query, [&](std::exception_ptr e, HttpResponse r)
 	{
-		throw std::system_error(ec, "DNS resolve failed for " + host + ":" + port);
+		ex = e;
+		resp = std::move(r);
+	});
+
+	io.run();
+
+	if (ex)
+	{
+		std::rethrow_exception(ex);
 	}
 
-	// --- connect: try each resolved endpoint in order (IPv6/IPv4 fallback) -------
-	boost::asio::ip::tcp::socket socket(io);
-	bool connected = false;
-	boost::system::error_code last_ec{boost::asio::error::not_connected};
-
-	for (const auto& ep : endpoints)
-	{
-		// M2: the whole request is budgeted; don't spend more than that on connect attempts.
-		if (std::chrono::steady_clock::now() > deadline)
-		{
-			throw std::system_error(boost::asio::error::make_error_code(boost::asio::error::timed_out), "request exceeded the total time budget");
-		}
-
-		socket.open(ep.endpoint().protocol(), ec);
-
-		if (ec)
-		{
-			last_ec = ec;
-			continue;
-		}
-
-		// M3: bound this attempt by both the per-attempt connect timeout and whatever of the overall request
-		// budget (M2) is still left; a black-holed SYN must not hang for the OS tcp_syn_retries window. On unix the
-		// socket stays non-blocking on success so bounded_read()/bounded_write_all() can enforce their own poll(2)
-		// deadlines below (Asio's synchronous recv/send would not honor SO_RCVTIMEO/SO_SNDTIMEO).
-		const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
-		const auto attempt_timeout = std::min(m_config.connect_timeout, (remaining > std::chrono::milliseconds(0)) ? remaining : std::chrono::milliseconds(0));
-		ec = connect_with_timeout(socket, ep.endpoint(), attempt_timeout);
-
-		if (!ec)
-		{
-			connected = true;
-			break;
-		}
-
-		last_ec = ec;
-		boost::system::error_code ignored;
-		socket.close(ignored);
-	}
-
-	if (!connected)
-	{
-		throw std::system_error(last_ec, "connect to " + host + ":" + port + " failed");
-	}
-
-	std::string response;
-	char buf[8192];
-	ResponseScanState scan; // L1: incremental completion-scan state shared by the read loop below
-
-#ifdef __unix__
-	// --- send the full request (bounded by poll(2) deadlines, M3/M2) -------------------
-	boost::system::error_code send_ec;
-
-	if (!bounded_write_all(socket.native_handle(), request.data(), request.size(), m_config.read_timeout, deadline, send_ec))
-	{
-		throw std::system_error(send_ec, "send failed for GET " + path);
-	}
-
-	// --- read until we have a complete response (each read bounded, M3/M2; L1: incremental scan) --------------
-	while (!response_complete(response, m_config.max_response_size, scan))
-	{
-		boost::system::error_code read_ec;
-		const auto n = bounded_read(socket.native_handle(), buf, sizeof(buf), m_config.read_timeout, deadline, read_ec);
-
-		if (read_ec == boost::asio::error::make_error_code(boost::asio::error::eof)) // peer closed the connection: response complete
-		{
-			break;
-		}
-
-		if (read_ec)
-		{
-			throw std::system_error(read_ec, "read failed for GET " + path);
-		}
-
-		response.append(buf, n);
-
-		// M2: the overall budget is also enforced inside bounded_read(); this check keeps the loop self-documenting.
-		if (std::chrono::steady_clock::now() > deadline)
-		{
-			throw std::system_error(boost::asio::error::make_error_code(boost::asio::error::timed_out), "request exceeded the total time budget");
-		}
-	}
-
-#else
-	// L3: non-unix platforms fall back to unbounded blocking Asio IO (addressed separately).
-	// --- send the full request ------------------------------------------------------
-	boost::asio::write(socket, boost::asio::buffer(request), ec);
-
-	if (ec)
-	{
-		throw std::system_error(ec, "send failed for GET " + path);
-	}
-
-	// --- read until we have a complete response (L1: incremental scan) -------------------
-	while (!response_complete(response, m_config.max_response_size, scan))
-	{
-		const auto n = socket.read_some(boost::asio::buffer(buf), ec);
-
-		if (ec == boost::asio::error::eof) // peer closed the connection: response complete
-		{
-			break;
-		}
-
-		if (ec)
-		{
-			throw std::system_error(ec, "read failed");
-		}
-
-		response.append(buf, n);
-
-		// M2: a slow-drip server that keeps every individual read under read_timeout can still pin this loop
-		// indefinitely; abort once the overall request budget is exceeded (complete responses break out above).
-		if (std::chrono::steady_clock::now() > deadline)
-		{
-			throw std::system_error(boost::asio::error::make_error_code(boost::asio::error::timed_out), "request exceeded the total time budget");
-		}
-	}
-
-#endif
-
-	boost::system::error_code ignored;
-	socket.close(ignored); // best-effort, ignore errors
-
-	return parse_http_response(response);
+	return std::move(*resp);
 }
 
-// M3: SO_RCVTIMEO/SO_SNDTIMEO do not apply to the connect() handshake — a black-holed SYN (dropped packets)
-// hangs for the OS tcp_syn_retries window (~15-75 s on Linux, up to ~127 s with default settings) regardless of
-// those options. This helper bounds each attempt with an explicit deadline instead: raw POSIX connect(2) on a
-// non-blocking socket (guaranteed to return immediately with EINPROGRESS when the handshake cannot complete at
-// once — Asio's synchronous connect() would wait internally for kernel SYN retries, defeating any user-space
-// deadline), then poll(2) where completion is signalled by writability plus a clean SO_ERROR. Aborts with
-// timed_out once the deadline passes. On success the socket is left in non-blocking mode: bounded_read()/
-// bounded_write_all() enforce their own poll(2) deadlines on it (Asio's synchronous recv/send would not honor
-// SO_RCVTIMEO/SO_SNDTIMEO — see M3).
-inline boost::system::error_code HttpTransport::connect_with_timeout(boost::asio::ip::tcp::socket& socket, const boost::asio::ip::tcp::endpoint& ep, std::chrono::milliseconds timeout)
-{
-#ifdef __unix__
-	const auto deadline = std::chrono::steady_clock::now() + timeout;
-
-	socket.non_blocking(true);
-
-	// Build the target address manually for raw POSIX connect(2).
-	sockaddr_storage addr{};
-	socklen_t addr_len = 0;
-
-	if (ep.address().is_v4())
-	{
-		auto* a = reinterpret_cast<sockaddr_in*>(&addr);
-		a->sin_family = AF_INET;
-		a->sin_port = htons(ep.port());
-		a->sin_addr.s_addr = htonl(ep.address().to_v4().to_uint()); // to_uint() is host byte order; s_addr needs network order
-		addr_len = static_cast<socklen_t>(sizeof(sockaddr_in));
-	}
-	else
-	{
-		auto* a = reinterpret_cast<sockaddr_in6*>(&addr);
-		a->sin6_family = AF_INET6;
-		a->sin6_port = htons(ep.port());
-		std::memcpy(&a->sin6_addr, ep.address().to_v6().to_bytes().data(), 16);
-		addr_len = static_cast<socklen_t>(sizeof(sockaddr_in6));
-	}
-
-	const int fd = socket.native_handle();
-	int rc = ::connect(fd, reinterpret_cast<sockaddr*>(&addr), addr_len);
-
-	if (rc == 0)
-	{
-		return {}; // connected synchronously; the socket stays non-blocking for bounded_read()/bounded_write_all()
-	}
-
-	if (errno != EINPROGRESS && errno != EINTR)
-	{
-		return boost::system::error_code(errno, boost::system::generic_category()); // e.g. ECONNREFUSED: nothing to wait for
-	}
-
-	pollfd pfd{};
-	pfd.fd = fd;
-	pfd.events = POLLOUT; // a pending non-blocking connect becomes "writable" when it finishes, success or failure
-
-	while (true)
-	{
-		const auto now = std::chrono::steady_clock::now();
-
-		if (now >= deadline)
-		{
-			return boost::asio::error::make_error_code(boost::asio::error::timed_out);
-		}
-
-		const int remaining_ms = static_cast<int>(std::min<long long>(timeout.count(), std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now).count()));
-		const int prc = ::poll(&pfd, 1, remaining_ms);
-
-		if (prc < 0 && errno != EINTR)
-		{
-			return boost::system::error_code(errno, boost::system::generic_category()); // poll itself failed
-		}
-
-		if (prc == 0)
-		{
-			continue; // poll slice elapsed: re-check the deadline above and retry with a fresh slice
-		}
-
-		int so_error = 0;
-		socklen_t len = sizeof(so_error);
-
-		while (::getsockopt(fd, SOL_SOCKET, SO_ERROR, &so_error, &len) < 0 && errno == EINTR)
-		{
-			// interrupted: retry the getsockopt
-		}
-
-		if (so_error == 0)
-		{
-			return {}; // connected; the socket stays non-blocking for bounded_read()/bounded_write_all()
-		}
-
-		return boost::system::error_code(so_error, boost::system::generic_category()); // e.g. ECONNREFUSED, ETIMEDOUT
-	}
-
-#else
-	// L3: non-unix platforms have no poll(2) deadline here (addressed separately): plain synchronous connect,
-	// unbounded by Config::connect_timeout. Restore blocking mode so the Asio-based read/write fallback in get() works.
-	boost::system::error_code ec;
-	socket.connect(ep, ec);
-
-	if (!ec)
-	{
-		boost::system::error_code nb_ec;
-		socket.non_blocking(false, nb_ec);
-	}
-
-	return ec;
-#endif
-}
 
 // Shared by the sync read loops (unix and non-unix) and the async read handler: throws once the accumulated response
 // exceeds max_response_size or declares an unsatisfiable Content-Length; returns true when a declared Content-Length
@@ -720,134 +484,6 @@ inline bool HttpTransport::response_complete(const std::string& response, const 
 	return scan.content_length.has_value() && response.size() >= body_start && *scan.content_length <= response.size() - body_start;
 }
 
-#ifdef __unix__
-// M3/M2: Asio's synchronous recv/send do not honor SO_RCVTIMEO/SO_SNDTIMEO on unix: when a blocking ::recv times
-// out it returns EAGAIN, which boost::asio::detail::socket_ops::sync_recv1 treats as "would block" and retries
-// after an *infinite* poll_read(-1) — so a silent peer would pin this thread forever. These helpers bound every
-// read/write with explicit poll(2) deadlines instead: each operation waits at most min(per_op_timeout, remaining
-// request budget), after which it reports timed_out. The socket must be non-blocking (see connect_with_timeout).
-inline std::size_t HttpTransport::bounded_read(int fd, char* buf, std::size_t len, std::chrono::milliseconds per_op_timeout, const std::chrono::steady_clock::time_point& deadline, boost::system::error_code& ec)
-{
-	pollfd pfd{};
-	pfd.fd = fd;
-	pfd.events = POLLIN;
-
-	for (;;)
-	{
-		const auto now = std::chrono::steady_clock::now();
-
-		if (now >= deadline)
-		{
-			ec = boost::asio::error::make_error_code(boost::asio::error::timed_out); // M2: overall request budget exhausted
-			return 0;
-		}
-
-		const auto wait_cap = std::min(per_op_timeout, std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now));
-		const int timeout_ms = static_cast<int>(wait_cap.count());
-		const int prc = ::poll(&pfd, 1, timeout_ms);
-
-		if (prc < 0)
-		{
-			if (errno == EINTR)
-			{
-				continue; // interrupted: re-check the deadlines and retry
-			}
-
-			ec = boost::system::error_code(errno, boost::system::generic_category());
-			return 0;
-		}
-
-		if (prc == 0)
-		{
-			// No data within min(per_op_timeout, remaining budget): a silent peer must not pin this thread.
-			ec = boost::asio::error::make_error_code(boost::asio::error::timed_out);
-			return 0;
-		}
-
-		const ssize_t n = ::recv(fd, buf, len, 0); // poll(2) says data (or EOF) is ready on this non-blocking socket
-
-		if (n > 0)
-		{
-			ec.clear();
-			return static_cast<std::size_t>(n);
-		}
-
-		if (n == 0)
-		{
-			ec = boost::asio::error::make_error_code(boost::asio::error::eof); // peer closed: response complete
-			return 0;
-		}
-
-		if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)
-		{
-			continue; // spurious readiness or interrupted: re-loop under the deadlines above
-		}
-
-		ec = boost::system::error_code(errno, boost::system::generic_category());
-		return 0;
-	}
-}
-
-inline bool HttpTransport::bounded_write_all(int fd, const char* data, std::size_t len, std::chrono::milliseconds per_op_timeout, const std::chrono::steady_clock::time_point& deadline, boost::system::error_code& ec)
-{
-	std::size_t offset = 0;
-
-	while (offset < len)
-	{
-		const auto now = std::chrono::steady_clock::now();
-
-		if (now >= deadline)
-		{
-			ec = boost::asio::error::make_error_code(boost::asio::error::timed_out); // M2: overall request budget exhausted
-			return false;
-		}
-
-		const auto wait_cap = std::min(per_op_timeout, std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now));
-		const int timeout_ms = static_cast<int>(wait_cap.count());
-		pollfd pfd{};
-		pfd.fd = fd;
-		pfd.events = POLLOUT;
-		const int prc = ::poll(&pfd, 1, timeout_ms);
-
-		if (prc < 0)
-		{
-			if (errno == EINTR)
-			{
-				continue; // interrupted: re-check the deadlines and retry
-			}
-
-			ec = boost::system::error_code(errno, boost::system::generic_category());
-			return false;
-		}
-
-		if (prc == 0)
-		{
-			// Peer's receive window stayed closed for min(per_op_timeout, remaining budget): report a timeout.
-			ec = boost::asio::error::make_error_code(boost::asio::error::timed_out);
-			return false;
-		}
-
-		const ssize_t n = ::send(fd, data + offset, len - offset, MSG_NOSIGNAL); // no SIGPIPE if the peer goes away mid-write
-
-		if (n > 0)
-		{
-			offset += static_cast<std::size_t>(n);
-			continue;
-		}
-
-		if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)
-		{
-			continue; // spurious readiness or interrupted: re-loop under the deadlines above
-		}
-
-		ec = boost::system::error_code(errno, boost::system::generic_category());
-		return false;
-	}
-
-	ec.clear();
-	return true;
-}
-#endif // __unix__
 
 inline HttpResponse HttpTransport::get(const std::string& url) const
 {
