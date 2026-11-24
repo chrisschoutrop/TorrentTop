@@ -73,6 +73,41 @@ std::string trim(const std::string& s)
 	return s.substr(b, e - b + 1);
 }
 
+// Escapes control characters in text before it is embedded in exceptions or logs, so that
+// malicious remote strings cannot forge log lines or inject terminal escapes.
+std::string sanitize_for_logging(const std::string& s)
+{
+	std::string out;
+	out.reserve(s.size());
+
+	for (const char ch : s)
+	{
+		const unsigned char c = static_cast<unsigned char>(ch);
+
+		if (c == '\r')
+		{
+			out += "\\r";
+		}
+		else if (c == '\n')
+		{
+			out += "\\n";
+		}
+		else if (c < 0x20 || c == 0x7F)
+		{
+			static constexpr char kHex[] = "0123456789ABCDEF";
+			out += "\\x";
+			out += kHex[c >> 4];
+			out += kHex[c & 0xF];
+		}
+		else
+		{
+			out += ch;
+		}
+	}
+
+	return out;
+}
+
 // Returns the expected body size if a Content-Length header is present in the head, else nullopt (read until EOF).
 std::optional<std::size_t> content_length_of_head(const std::string& head)
 {
@@ -223,14 +258,14 @@ HttpResponse parse_http_response(const std::string& response)
 
 	if (status_line.rfind("HTTP/", 0) != 0)
 	{
-		throw std::runtime_error("#2af545: malformed HTTP status line: " + status_line);
+		throw std::runtime_error("#2af545: malformed HTTP status line: " + sanitize_for_logging(status_line));
 	}
 
 	const auto sp1 = status_line.find(' ');
 
 	if (sp1 == std::string::npos)
 	{
-		throw std::runtime_error("#e79bc8: malformed HTTP status line: " + status_line);
+		throw std::runtime_error("#e79bc8: malformed HTTP status line: " + sanitize_for_logging(status_line));
 	}
 
 	const std::string after_version = status_line.substr(sp1 + 1); // e.g. "200 OK" or just "200"
@@ -242,12 +277,12 @@ HttpResponse parse_http_response(const std::string& response)
 	}
 	catch (const std::exception&)
 	{
-		throw std::runtime_error("#8ffb68: malformed HTTP status line: " + status_line);
+		throw std::runtime_error("#8ffb68: malformed HTTP status line: " + sanitize_for_logging(status_line));
 	}
 
 	if (parsed == 0)
 	{
-		throw std::runtime_error("#1196a5: malformed HTTP status line: " + status_line);
+		throw std::runtime_error("#1196a5: malformed HTTP status line: " + sanitize_for_logging(status_line));
 	}
 
 	if (parsed < after_version.size())
@@ -499,7 +534,7 @@ inline HttpTransport::UrlParts HttpTransport::parse_http_url(const std::string& 
 
 	if (scheme_end == std::string::npos || to_lower(url.substr(0, scheme_end)) != "http")
 	{
-		throw std::invalid_argument("#89b33e: only http:// URLs are supported: " + url);
+		throw std::invalid_argument("#89b33e: only http:// URLs are supported: " + sanitize_for_logging(url));
 	}
 
 	const std::string rest = url.substr(scheme_end + 3);
@@ -517,7 +552,7 @@ inline HttpTransport::UrlParts HttpTransport::parse_http_url(const std::string& 
 
 		if (close_bracket == std::string::npos)
 		{
-			throw std::invalid_argument("#3e78d5: malformed IPv6 literal in URL: " + url);
+			throw std::invalid_argument("#3e78d5: malformed IPv6 literal in URL: " + sanitize_for_logging(url));
 		}
 
 		host = host.substr(1, close_bracket - 1); // strip brackets for resolver.resolve
@@ -526,7 +561,7 @@ inline HttpTransport::UrlParts HttpTransport::parse_http_url(const std::string& 
 		{
 			if (hostport[close_bracket + 1] != ':')
 			{
-				throw std::invalid_argument("#3c2f78: malformed IPv6 literal in URL: " + url);
+				throw std::invalid_argument("#3c2f78: malformed IPv6 literal in URL: " + sanitize_for_logging(url));
 			}
 
 			port = hostport.substr(close_bracket + 2);
@@ -644,7 +679,7 @@ inline void HttpTransport::async_start_resolve(const std::shared_ptr<AsyncSessio
 	{
 		if (ec)
 		{
-			async_deliver(session, std::make_exception_ptr(std::system_error(ec, "DNS resolve failed for " + session->host + ":" + session->port)));
+			async_deliver(session, std::make_exception_ptr(std::system_error(ec, "DNS resolve failed for " + sanitize_for_logging(session->host) + ":" + sanitize_for_logging(session->port))));
 			return;
 		}
 
@@ -658,7 +693,7 @@ inline void HttpTransport::async_start_connect(const std::shared_ptr<AsyncSessio
 {
 	if (session->endpoint_index >= session->endpoints.size())
 	{
-		async_deliver(session, std::make_exception_ptr(std::system_error(session->last_error, "connect to " + session->host + ":" + session->port + " failed")));
+		async_deliver(session, std::make_exception_ptr(std::system_error(session->last_error, "connect to " + sanitize_for_logging(session->host) + ":" + sanitize_for_logging(session->port) + " failed")));
 		return;
 	}
 
