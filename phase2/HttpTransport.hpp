@@ -389,6 +389,15 @@ class HttpTransport
 		// is bounded by Config::request_timeout as an overall wall-clock budget, so a slow-drip server that keeps each
 		// individual read under read_timeout cannot pin the session indefinitely. on_complete is invoked at most once, with
 		// a non-null exception_ptr on failure (URL/parse errors included) and the parsed HttpResponse on success.
+		//
+		// L7 thread-safety contract: an in-flight AsyncSession holds unsynchronized state (response buffer, scan state,
+		// phase, completed flag, timer generation). It is safe ONLY if all of its operations are dispatched from a single
+		// thread — i.e. the caller must run this io_context on exactly one thread while any request issued through it is
+		// in flight (one io.run() per thread, or a dedicated worker thread; never call io_context::run() concurrently
+		// from multiple threads for the same context). The synchronous get() overload satisfies this by construction: it
+		// creates its own private io_context and runs it on the calling thread. Issuing async_get on an io_context that
+		// is run by several threads at once is a data race in the caller, not in this class; if you need multi-threaded
+		// dispatch, serialize access to the io_context (e.g. one request per dedicated context) or add your own locking.
 		void async_get(boost::asio::io_context& io, const std::string& host, const std::string& port, const std::string& path_and_query, std::function<void(std::exception_ptr, HttpResponse)> on_complete) const;
 
 		// Convenience overload for "http://host[:port]/path[?query]"; delegates to the (io, host, port, ...) form.
