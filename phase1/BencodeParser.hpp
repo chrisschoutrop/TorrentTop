@@ -5,7 +5,6 @@
 #include <vector>
 #include <string>
 #include <cstdint>
-#include <cassert>
 #include <charconv>
 #include <map>
 #include <memory>

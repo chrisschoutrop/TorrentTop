@@ -80,7 +80,7 @@ Begin nu uitsluitend met punt 1.
 ```
 </prompt>
 
-🕒<prompt>
+✅<prompt>
 Lees `security_problems_HttpTransport.md`, `phase2/HttpTransport.hpp` en `phase2/test_HttpTransport.cpp`.
 Los de onderstaande security-issues **strikt één voor één** op. Doe NOOIT twee fixes tegelijk in één stap. Controleer na het lezen de git history of er al issues uit te lijst zijn opgelost. Als je tijdelijke bestanden nodig hebt, zet ze in de torrenttop_temp map.
 
@@ -108,7 +108,7 @@ Lijst van op te lossen issues:
 </prompt>
 
 🕒<prompt>
-Update the tests (files starting with test_) and experiments (files starting with exp_) such that there is only terminal output on failure. Work on ONLY one test or experiment at a time. After modifying one test or experiment, verify that everything is correct by running check.sh. After all test and experiments are correct and updated, make a git commit compactly describing this task,  DO NOT GIT PUSH. If you need temporary files, put them in the torrenttop_temp folder.
+Update the tests (files starting with test_) and experiments (files starting with exp_) such that there is only terminal output on failure. Work on ONLY one test or experiment at a time. After modifying one test or experiment, verify that everything is correct by running check.sh. After all test and experiments are correct and updated, make a git commit compactly describing this task,  DO NOT GIT PUSH.
 Tests to check for output and update:
 - [ ] ./phase1/test_BencodeParser.cpp
 - [ ] ./phase2/test_TrackerClient.cpp

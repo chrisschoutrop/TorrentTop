@@ -1,5 +1,6 @@
 #include "BencodeParser.hpp"
 
+#include <cassert>
 #include <algorithm>
 
 class test_Parser
