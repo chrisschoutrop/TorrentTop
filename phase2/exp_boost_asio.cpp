@@ -1,7 +1,7 @@
 // Minimal Boost.Asio experiment for phase 2.
 //
-// Connects to a public BitTorrent tracker over TCP, sends an HTTP GET
-// announce request and prints whatever reply comes back. No bencode
+// Connects to a public BitTorrent tracker over TCP and sends an HTTP GET
+// announce request; silent on success, errors go to stderr. No bencode
 // parsing yet - just validate DNS + connect + send + receive with Asio.
 //
 // Build: g++ -O0 -g3 -std=c++23 -Wall -Wextra -Wpedantic exp_boost_asio.cpp -o exp_boost_asio.out
@@ -87,9 +87,6 @@ class TrackerSession
 				return;
 			}
 
-			const auto remote = socket_.remote_endpoint();
-			std::cout << "Connected to " << remote.address() << ":" << remote.port() << "\n";
-
 			boost::asio::async_write(socket_, boost::asio::buffer(request_), [this](const boost::system::error_code & err, std::size_t)
 			{
 				on_write(err);
@@ -104,7 +101,6 @@ class TrackerSession
 				return;
 			}
 
-			std::cout << "--- Sent announce request ---\n" << request_ << "\n";
 			socket_.async_read_some(boost::asio::buffer(read_buf_), [this](const boost::system::error_code & err, std::size_t n)
 			{
 				on_read(err, n);
@@ -149,9 +145,6 @@ class TrackerSession
 
 		void finish()
 		{
-			std::cout << "\n--- Tracker reply (" << response_.size() << " bytes) ---\n";
-			std::cout << response_;
-
 			boost::system::error_code ignored; // best-effort close so nothing lingers if io_context is reused later
 			socket_.close(ignored);
 		}
@@ -181,15 +174,6 @@ int main()
 		std::cerr << "Resolve failed: " << ec.message() << "\n";
 		return 1;
 	}
-
-	std::cout << "Resolved " << host << ":" << port << " -> ";
-
-	for (const auto& ep : endpoints)
-	{
-		std::cout << ep.endpoint().address() << ", ";
-	}
-
-	std::cout << "\n";
 
 	// Steps 2-4: try each resolved endpoint in order (IPv6/IPv4 fallback), send the announce request, read until done.
 	TrackerSession session(io);

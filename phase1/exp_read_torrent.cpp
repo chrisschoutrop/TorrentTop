@@ -72,8 +72,6 @@ std::vector<std::byte> readFileData(const std::string& name)
 
 int main()
 {
-	std::cout << "exp_read_torrent.cpp" << std::endl;
-
 	try
 	{
 		std::vector<std::byte> torrent_bytes = readFileData("archlinux-2026.10.01-x86_64.iso.torrent");

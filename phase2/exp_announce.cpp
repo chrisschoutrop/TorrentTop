@@ -1,6 +1,7 @@
 // Phase 2 integration experiment (first step of the plan in phase2.cpp):
-// hit a tracker through the header-only HttpTransport and print whatever comes back.
-// This validates DNS + connect + send + receive + response parsing end-to-end.
+// hit a tracker through the header-only HttpTransport, silently on success.
+// This validates DNS + connect + send + receive + response parsing end-to-end;
+// only failures are printed to stderr.
 //
 // Default target is a public BitTorrent tracker; pass host/port/path to point it anywhere, e.g.:
 //   ./exp_announce.out 127.0.0.1 8765 "/announce?info_hash=..."
@@ -27,28 +28,6 @@ std::string build_announce_path()
 	       "&compact=1&event=started";
 }
 
-void print_response(const HttpResponse& resp)
-{
-	std::cout << "Status: " << resp.status_code << " " << resp.reason_phrase << "\n";
-
-	std::cout << "Headers:\n";
-
-	for (const auto& [k, v] : resp.headers)
-	{
-		std::cout << "  " << k << ": " << v << "\n";
-	}
-
-	const std::size_t max_print = 4096;
-
-	std::cout << "Body (" << resp.body.size() << " bytes):\n" << resp.body.substr(0, max_print);
-
-	if (resp.body.size() > max_print)
-	{
-		std::cout << "\n... [truncated]";
-	}
-
-	std::cout << std::endl;
-}
 }
 
 int main(int argc, char** argv)
@@ -68,8 +47,7 @@ int main(int argc, char** argv)
 
 	try
 	{
-		const auto resp = http.get(host, port, path);
-		print_response(resp);
+		http.get(host, port, path); // exercise the full request/response cycle; silent on success
 	}
 	catch (const std::exception& e)
 	{

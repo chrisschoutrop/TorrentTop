@@ -478,7 +478,6 @@ class test_Parser
 			catch (const std::exception& e)
 			{
 				exceptionThrown = true;
-				std::cout << "#7c3e91: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -546,7 +545,6 @@ class test_Parser
 #ifndef FUZZER
 int main()
 {
-	std::cout << "test_BencodeParser.cpp" << std::endl;
 	test_Parser test;
 	return 0;
 }

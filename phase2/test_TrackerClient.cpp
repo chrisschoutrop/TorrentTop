@@ -213,7 +213,6 @@ class test_TrackerClient
 			catch (const std::invalid_argument& e)
 			{
 				exceptionThrown = true;
-				std::cout << "#9f933f: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -228,7 +227,6 @@ class test_TrackerClient
 			catch (const std::invalid_argument& e)
 			{
 				exceptionThrown = true;
-				std::cout << "#276bb9: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -276,7 +274,6 @@ class test_TrackerClient
 			catch (const std::invalid_argument& e)
 			{
 				exceptionThrown = true;
-				std::cout << "#c9d1e2: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -291,7 +288,6 @@ class test_TrackerClient
 			catch (const std::invalid_argument& e)
 			{
 				exceptionThrown = true;
-				std::cout << "#e4b6c8: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -339,7 +335,6 @@ class test_TrackerClient
 			catch (const std::invalid_argument& e)
 			{
 				exceptionThrown = true;
-				std::cout << "#a8f7eb: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -354,7 +349,6 @@ class test_TrackerClient
 			catch (const std::invalid_argument& e)
 			{
 				exceptionThrown = true;
-				std::cout << "#252372: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -369,7 +363,6 @@ class test_TrackerClient
 			catch (const std::invalid_argument& e)
 			{
 				exceptionThrown = true;
-				std::cout << "#c3545f: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -384,7 +377,6 @@ class test_TrackerClient
 			catch (const std::invalid_argument& e)
 			{
 				exceptionThrown = true;
-				std::cout << "#95b25d: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -399,7 +391,6 @@ class test_TrackerClient
 			catch (const std::invalid_argument& e)
 			{
 				exceptionThrown = true;
-				std::cout << "#64a807: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -414,7 +405,6 @@ class test_TrackerClient
 			catch (const std::invalid_argument& e)
 			{
 				exceptionThrown = true;
-				std::cout << "#c3c1b9: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -492,7 +482,6 @@ class test_TrackerClient
 			catch (const std::invalid_argument& e)
 			{
 				exceptionThrown = true;
-				std::cout << "#bddd23: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -507,7 +496,6 @@ class test_TrackerClient
 			catch (const std::invalid_argument& e)
 			{
 				exceptionThrown = true;
-				std::cout << "#7986f2: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -539,7 +527,6 @@ class test_TrackerClient
 			catch (const std::invalid_argument& e)
 			{
 				exceptionThrown = true;
-				std::cout << "#d4e5f6: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -565,7 +552,6 @@ class test_TrackerClient
 			catch (const std::invalid_argument& e)
 			{
 				exceptionThrown = true;
-				std::cout << "#e0f1a2: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -588,7 +574,6 @@ class test_TrackerClient
 			catch (const std::invalid_argument& e)
 			{
 				exceptionThrown = true;
-				std::cout << "#f6a7b8: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -622,7 +607,6 @@ class test_TrackerClient
 			catch (const std::invalid_argument& e)
 			{
 				exceptionThrown = true;
-				std::cout << "#838c28: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -642,7 +626,6 @@ class test_TrackerClient
 			catch (const std::invalid_argument& e)
 			{
 				exceptionThrown = true;
-				std::cout << "#6079ad: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -658,7 +641,6 @@ class test_TrackerClient
 			catch (const std::invalid_argument& e)
 			{
 				exceptionThrown = true;
-				std::cout << "#553fea: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -687,7 +669,6 @@ class test_TrackerClient
 			catch (const std::invalid_argument& e)
 			{
 				exceptionThrown = true;
-				std::cout << "#5d9c2e: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -702,7 +683,6 @@ class test_TrackerClient
 			catch (const std::invalid_argument& e)
 			{
 				exceptionThrown = true;
-				std::cout << "#7b3d6c: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -719,7 +699,6 @@ class test_TrackerClient
 			catch (const std::exception& e) // bencode parser throws runtime_error on overflow, invalid_argument otherwise
 			{
 				exceptionThrown = true;
-				std::cout << "#9c4b7f: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -816,7 +795,6 @@ class test_TrackerClient
 			catch (const std::runtime_error& e)
 			{
 				exceptionThrown = true;
-				std::cout << "#8869dd: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -910,7 +888,6 @@ class test_TrackerClient
 			catch (const std::runtime_error& e)
 			{
 				exceptionThrown = true;
-				std::cout << "#a9d72d: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -955,7 +932,6 @@ class test_TrackerClient
 			catch (const std::exception& e) // BencodeParser throws invalid_argument/runtime_error/out_of_range
 			{
 				exceptionThrown = true;
-				std::cout << "#6265f1: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -1097,7 +1073,6 @@ class test_TrackerClient
 			{
 				exceptionThrown = true;
 				message = e.what();
-				std::cout << "#f2a9c4: expected failure: " << message << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -1131,7 +1106,6 @@ class test_TrackerClient
 			{
 				exceptionThrown = true;
 				message = e.what();
-				std::cout << "#9b7e31: expected failure: " << message << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -1284,7 +1258,6 @@ class test_TrackerClient
 			catch (const std::exception& e) // HttpTransport throws runtime_error for non-200 statuses
 			{
 				exceptionThrown = true;
-				std::cout << "#8c8e64: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -1403,7 +1376,6 @@ class test_TrackerClient
 #ifndef FUZZER
 int main()
 {
-	std::cout << "test_TrackerClient.cpp" << std::endl;
 	test_TrackerClient test;
 	return 0;
 }

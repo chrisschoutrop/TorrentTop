@@ -564,7 +564,6 @@ class test_HttpTransport
 			catch(const std::system_error& e)
 			{
 				exceptionThrown = true;
-				std::cout << "#6fa1ca: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -621,7 +620,6 @@ class test_HttpTransport
 			catch (const std::system_error& e)
 			{
 				timedOut = (e.code() == boost::asio::error::make_error_code(boost::asio::error::timed_out));
-				std::cout << "expected timeout against unresponsive endpoint: " << e.what() << std::endl;
 			}
 
 			const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
@@ -656,7 +654,6 @@ class test_HttpTransport
 			catch(const std::runtime_error& e)
 			{
 				exceptionThrown = true;
-				std::cout << "#5679b1: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -684,7 +681,6 @@ class test_HttpTransport
 			catch (const std::runtime_error& e)
 			{
 				exceptionThrown = true;
-				std::cout << "#a3f9c2: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -849,7 +845,6 @@ class test_HttpTransport
 			catch (const std::system_error& e)
 			{
 				timedOut = (e.code() == boost::asio::error::make_error_code(boost::asio::error::timed_out));
-				std::cout << "#3ebb53: expected timeout: " << e.what() << std::endl;
 			}
 
 			assert(timedOut);
@@ -938,7 +933,6 @@ class test_HttpTransport
 			catch (const std::system_error& e)
 			{
 				timedOut = (e.code() == boost::asio::error::make_error_code(boost::asio::error::timed_out));
-				std::cout << "expected slow-drip timeout: " << e.what() << std::endl;
 			}
 
 			const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
@@ -1045,7 +1039,6 @@ class test_HttpTransport
 			catch (const std::system_error& e)
 			{
 				timedOut = (e.code() == boost::asio::error::make_error_code(boost::asio::error::timed_out));
-				std::cout << "expected slow-drip timeout: " << e.what() << std::endl;
 			}
 
 			assert(timedOut);
@@ -1085,7 +1078,6 @@ class test_HttpTransport
 			catch (const std::invalid_argument& e)
 			{
 				invalidArgument = true;
-				std::cout << "#3b4e26: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(invalidArgument);
@@ -1133,7 +1125,6 @@ class test_HttpTransport
 			catch (const std::system_error& e)
 			{
 				systemError = true;
-				std::cout << "#0dfc28: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(systemError);
@@ -1245,7 +1236,6 @@ class test_HttpTransport
 			catch (const std::runtime_error& e)
 			{
 				exceptionThrown = true;
-				std::cout << "#4d8f1a: expected failure: " << e.what() << std::endl;
 			}
 
 			assert(exceptionThrown);
@@ -1279,7 +1269,6 @@ class test_HttpTransport
 #ifndef FUZZER
 int main()
 {
-	std::cout << "test_HttpTransport.cpp" << std::endl;
 	test_HttpTransport test;
 	return 0;
 }

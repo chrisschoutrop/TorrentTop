@@ -14,7 +14,6 @@
 
 int main()
 {
-	std::cout << "exp_sha_hash.cpp" << std::endl;
 	// Example piece data in std::vector<std::byte>
 	std::vector<std::byte> piece_data =
 	{
