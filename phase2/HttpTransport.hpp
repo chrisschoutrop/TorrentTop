@@ -270,10 +270,11 @@ HttpResponse parse_http_response(const std::string& response)
 
 	const std::string after_version = status_line.substr(sp1 + 1); // e.g. "200 OK" or just "200"
 	std::size_t parsed = 0;
+	unsigned long long code = 0;
 
 	try
 	{
-		resp.status_code = static_cast<int>(std::stoul(after_version, &parsed));
+		code = std::stoull(after_version, &parsed);
 	}
 	catch (const std::exception&)
 	{
@@ -284,6 +285,15 @@ HttpResponse parse_http_response(const std::string& response)
 	{
 		throw std::runtime_error("#1196a5: malformed HTTP status line: " + sanitize_for_logging(status_line));
 	}
+
+	// L6: a real HTTP status code is three digits in the range 100-599. stoull accepts values up to ULLONG_MAX, and
+	// casting those straight to int would wrap negative; reject out-of-range codes instead of storing them.
+	if (code < 100 || code > 599)
+	{
+		throw std::runtime_error("#a2f4c8: HTTP status code out of range: " + sanitize_for_logging(status_line));
+	}
+
+	resp.status_code = static_cast<int>(code); // safe: validated to fit in int above
 
 	if (parsed < after_version.size())
 	{

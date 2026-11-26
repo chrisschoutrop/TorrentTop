@@ -133,6 +133,8 @@ class test_HttpTransport
 			    200 OK ...                  status line does not start with HTTP/
 			    HTTP/1.1                    status line without a code
 			    HTTP/1.1 abc def            non-numeric status code
+			    HTTP/1.1 99 / 600           L6: out-of-range codes (valid range is 100-599)
+			    HTTP/1.1 4294967296         L6: > INT_MAX used to wrap negative via the int cast
 			    Transfer-Encoding: chunked  unsupported framing -> runtime_error
 			*/
 			std::vector<std::string> inputs_strings
@@ -142,6 +144,9 @@ class test_HttpTransport
 				"200 OK\r\nX-Y: z\r\n\r\nbody",
 				"HTTP/1.1\r\nX-Y: z\r\n\r\nb",
 				"HTTP/1.1 abc def\r\n\r\nb",
+				"HTTP/1.1 99 Too Low\r\n\r\nb",
+				"HTTP/1.1 600 Too High\r\n\r\nb",
+				"HTTP/1.1 4294967296 Wraps Negative\r\n\r\nb",
 				"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nContent-Length: 5\r\n\r\nhello",
 			};
 
