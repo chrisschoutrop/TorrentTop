@@ -42,6 +42,7 @@ class test_HttpTransport
 			test_async_throwing_callback_does_not_terminate();
 			test_large_head_response_is_bounded();
 			test_default_max_response_size_bounds_tracker_traffic();
+			test_trailing_bytes_after_content_length_discarded();
 			test_parse_random_inputs();
 		}
 
@@ -1243,6 +1244,26 @@ class test_HttpTransport
 			}
 
 			assert(exceptionThrown);
+		}
+
+		static void test_trailing_bytes_after_content_length_discarded()
+		{
+			/*
+			L5 regression: a malicious server can send a complete response followed by a second concatenated
+			response (response splitting). The client must return the first, Content-Length-delimited body and
+			discard the tail without crashing or smuggling it into the parsed body.
+			*/
+			local_test_server server("HTTP/1.1 200 OK\r\n"
+			                         "Content-Length: 5\r\n"
+			                         "\r\n"
+			                         "hello",
+			                         "HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nsmuggled");
+
+			HttpTransport http;
+			HttpResponse resp = http.get("127.0.0.1", server.port(), "/splitting");
+
+			assert(resp.status_code == 200);
+			assert(resp.body == "hello"); // exactly the declared Content-Length bytes, nothing from the tail
 		}
 
 

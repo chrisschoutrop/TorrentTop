@@ -324,8 +324,15 @@ HttpResponse parse_http_response(const std::string& response)
 	}
 
 	// --- body: clamp to Content-Length if declared -------------------------
+	// L5: bytes beyond the declared Content-Length are discarded (a malicious server can concatenate a second
+	// response after a complete one — response splitting). That is fail-safe for this client, but the tail must not
+	// vanish silently: log how many bytes were dropped so stricter reusers of HttpResponse can detect it. Note that
+	// with multiple Content-Length headers the FIRST valid one wins (content_length_of_head stops at the first
+	// parseable value); a garbage first value degrades to read-until-EOF, which is acceptable here and documented.
 	if (const auto cl = content_length_of_head(head); cl && resp.body.size() > *cl)
 	{
+		std::cerr << "#e5a1c7: response contained " << (resp.body.size() - *cl)
+		          << " trailing bytes beyond the declared Content-Length; they were discarded" << std::endl;
 		resp.body.resize(*cl);
 	}
 
